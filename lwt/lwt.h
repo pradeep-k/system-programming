@@ -10,7 +10,7 @@ struct lwt_tcb{		//thread control block;
 	void* ip;
 	void* sp;
 	void* bp;
-	int id;
+	int id;//we may keep a lwt_t array or pool to store all lwt with id as its index, and a current queue to store ids for all currently living lwt
 	int parent;
 	int childrenCount;
 	lwt_status_t tcb_status; 
