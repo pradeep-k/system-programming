@@ -1,8 +1,35 @@
+/* lwt.h	
+ * Pradeep, Yang
+ */
+
 #ifndef __LWT_H__
 #define __LWT_H__
 
-typedef void* (*lwt_fn_t) (void *);
+/* data structures */
+struct lwt_tcb{		//thread control block;
+	void* ip;
+	void* sp;
+	void* bp;
+	int id;
+	int parent;
+	int childrenCount;
+	lwt_status_t tcb_status; 
+};
 
+typedef void* (*lwt_fn_t) (void *);
+typedef struct lwt_tcb* lwt_t;	//a pointer to tcb, use it as pthread_t
+typedef enum{
+	LWT_INFO_NTHD_RUNNABLE=0,
+	LWT_INFO_NTHD_BLOCKED,
+	LWT_INFO_NTHD_ZOMBIES
+}lwt_info_t;
+
+typedef enum{
+	RUN=1,
+	WAIT,
+	READY,
+	COMPLETE
+}lwt_status_t;
 
 /*
  * lightweight thread APIs.
