@@ -2,8 +2,6 @@
  * Pradeep, Yang
  */
 
-#ifndef __LWT_H__
-#define __LWT_H__
 #include <pthread.h>
 #define MAX_THD 64
 #define LWT_NULL NULL

@@ -51,7 +51,7 @@ int lwt_info(lwt_info_t t);
 /*
  * Internal functions.
  */
-void __ lwt_schedule(void);
+void __lwt_schedule(void);
 
 void __lwt_dispatch(lwt_t next, lwt_t current);
 
