@@ -61,12 +61,28 @@ int lwt_info(lwt_info_t t){
 /*
     * Internal functions.
      */
-void __ lwt_schedule(void){
+void __lwt_schedule(void){
 	// scheduling
 }
 
-void __lwt_dispatch(lwt_t next, lwt_t current){
+void __lwt_dispatch(lwt_t current, lwt_t next){
 	// context switch from current to next
+       __asm__ __volatile__ (
+               "pusha\n\t"
+               "movl %%esp,%0\n\t"
+               "call get_eip\n\t"// source: stack overflow.
+               "get_eip:\n\t"
+               "popl %%eax\n\t"
+               "addl $13, %%eax\n\t" // exactly 13 bytes of instructions are there between this and ret
+               "movl %%eax,%1\n\t"
+               "movl %2,%%esp\n\t"
+               "movl %3,%%ebx\n\t"
+               "jmp *%%ebx\n\t"
+               "popa\n\t"
+               :"=m"(next->sp),"=m"(next->ip)
+               :"r"(current->sp),"r"(current->ip)
+               :"eax","ebx"
+       );
 }
 
 void __lwt_trampoline(){

@@ -18,6 +18,7 @@ struct lwt_tcb{		//thread control block;
 
 typedef void* (*lwt_fn_t) (void *);
 typedef struct lwt_tcb* lwt_t;	//a pointer to tcb, use it as pthread_t
+typedef struct lwt_tcb tcb;
 typedef enum{
 	LWT_INFO_NTHD_RUNNABLE=0,
 	LWT_INFO_NTHD_BLOCKED,
@@ -53,7 +54,7 @@ int lwt_info(lwt_info_t t);
  */
 void __lwt_schedule(void);
 
-void __lwt_dispatch(lwt_t next, lwt_t current);
+void __lwt_dispatch(lwt_t current, lwt_t next);
 
 void __lwt_trampoline();
 
