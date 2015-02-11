@@ -5,15 +5,22 @@
 #ifndef __LWT_H__
 #define __LWT_H__
 #include <pthread.h>
-
+#define MAX_THD 64
 #define LWT_NULL NULL
+
+lwt_t lwt_pool[MAX_THD];// a thread pool for reuse, or a table to get tcb pointer by its id
+int Queue[MAX_THD];// a queue to store living thread
+int queue_length=0;
+
+lwt_t current_thd;//global pointer to current executing thread
+
 int runnable_num=1;
 int blocked_num=0;
 int zombies_num=0;//global variable for lwt_info
 
 
 lwt_t lwt_create(lwt_fn_t fn, void *data){
-	//
+	// set stack, add id to queue and update length
 }
 
 
@@ -26,12 +33,13 @@ void* lwt_die(void *ret){
 }
 
 void lwt_yield(lwt_t thd_handle){
-	// yield current thread and call schedule funtion
+	// yield current thread and call schedule funtion, dispatch and schedule
 }
 
 lwt_t lwt_current(){
 	// return a pointer to current thread
-}
+	return current_thd;
+}//done
 
 int lwt_id(lwt_t thd){
 	// return the unique id for the thread
@@ -41,11 +49,11 @@ int lwt_id(lwt_t thd){
 int lwt_info(lwt_info_t t){
 	// debugging helper
 	switch(t){
-		case LWT INFO NTHD RUNNABLE:
+		case LWT_INFO_NTHD_RUNNABLE:
 			return runnable_num;
-		case LWT INFO NTHD BLOCKED:
+		case LWT_INFO_NTHD_BLOCKED:
 			return blocked_num;
-		case LWT INFO NTHD ZOMBIES:
+		case LWT_INFO_NTHD_ZOMBIES:
 			return zombies_num;
 		case default:
 			return 0;
