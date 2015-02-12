@@ -34,15 +34,21 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
          */
         thd_handle->sp = __lwt_stack_get();
         thd_hanlde->ip = __lwt_trampoline;
+        thd_handle->bp = 0;
+        thd_handle->fn = fn;
+        thd_handle->data = data;
+        thd_handle->id = 1; //XXX 
 
         /*
          * add id to queue and update length
          */
-
-
         /*
          * Add the thread to scheduler.
          */
+        Queue[thd_handle->id] = thd_handle;
+        queue_length += 1; 
+
+        return thd_handle;
 }
 
 
@@ -54,18 +60,18 @@ void* lwt_die(void *ret){
 	// kill current thread
 }
 
-void lwt_yield(lwt_t thd){
+void lwt_yield(lwt_t thd)
+{
 	// yield current thread to thd or call schedule funtion when thd is NULL
 	lwt_t current = lwt_current();
-	if(thd!=LWT_NULL){//how about it is not ready?
-		if(thd->lwt_status==READY){
+	if(thd!=LWT_NULL) {//how about it is not ready?
+		if(thd->lwt_status==READY) {
 			current->tcb_status=READY;
 			current_thd = thd;
 			thd->tcb_status=RUN;
 			__lwt_dispatch(thd,current);
 			return;
-		}
-		else{
+		} else {
 			__lwt_schedule();
 		}
 		return;
