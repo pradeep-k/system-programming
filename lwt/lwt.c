@@ -18,6 +18,11 @@ int runnable_num=1;
 int blocked_num=0;
 int zombies_num=0;//global variable for lwt_info
 
+/*initialize the lwt_tcb for main function*/
+struct lwt_tcb main_tcb;
+main_tcb.id=0;
+main_tcb.queue_index=0;
+Queue[0]=&main_tcb;
 
 lwt_t lwt_create(lwt_fn_t fn, void *data)
 {
