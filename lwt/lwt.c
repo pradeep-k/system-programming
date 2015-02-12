@@ -5,10 +5,12 @@
 #include <pthread.h>
 #define MAX_THD 64
 #define LWT_NULL NULL
+#define DEFAULT_STACK_SIZE 1048576 //1MB
 
-lwt_t lwt_pool[MAX_THD];// a thread pool for reuse, or a table to get tcb pointer by its id
-lwt_t Queue[MAX_THD];// a queue to store living thread's pointer
-int queue_length=0;
+lwt_t   lwt_pool[MAX_THD];// a thread pool for reuse, or a table to get tcb pointer by its id
+lwt_t   Queue[MAX_THD];// a queue to store living thread's pointer
+int     queue_length=0;
+
 
 lwt_t current_thd;//global pointer to current executing thread
 
@@ -17,10 +19,25 @@ int blocked_num=0;
 int zombies_num=0;//global variable for lwt_info
 
 
-lwt_t lwt_create(lwt_fn_t fn, void *data){
-	// create stack, add id to queue and update length
-        // Set the sp and ip
-        // Add the thread to scheduler.
+lwt_t lwt_create(lwt_fn_t fn, void *data)
+{
+        lwt_t thd_handle = (lwt_t)malloc(sizeof(*lwt_t));
+        memset(thd_handle, 0, sizeof(*lwt_t));
+
+	/*
+         * create stack and set the sp and ip.
+         */
+        thd_handle->sp = __lwt_stack_get();
+        thd_hanlde->ip = __lwt_trampoline;
+
+        /*
+         * add id to queue and update length
+         */
+
+
+        /*
+         * Add the thread to scheduler.
+         */
 }
 
 
@@ -57,7 +74,7 @@ void lwt_yield(lwt_t thd){
 lwt_t lwt_current(){
 	// return a pointer to current thread
 	return current_thd;
-}//done
+}
 
 int lwt_id(lwt_t thd){
 	// return the unique id for the thread
@@ -137,29 +154,36 @@ void __lwt_dispatch(lwt_t current, lwt_t next){
 void __lwt_trampoline();
 {
         
-        /* 0. At a time, only one thread runs, Get the tcb data from the global variable, 
+        /* At a time, only one thread runs, Get the tcb data from the global variable, 
          * which scheduler should have set.
          */
         lwt_t current = lwt_current();
         
         /*
-         * 1. Call the fn function. Save its return value so that the thread which joins it
+         * Call the fn function. Save its return value so that the thread which joins it
          * can get its value.
          */
         lwt_current->return_value = lwt_current->fn(lwt_current->data);
         /*
-         * 2. Destroy the stack, tcb etc except the return value.
+         * Destroy the stack, tcb etc except the return value.
          *  (How to destroy the stack?? as we are in the stack)
-         * 3. Make it as zombie, so that it should not get scheduled. 
+         * Make it as zombie, so that it should not get scheduled. 
          */
 
 }
 
 void *__lwt_stack_get(void){
-	// allocate a new stack for a new lwt
+	/* 
+         * allocate a new stack for a new lwt
+         */
+        return malloc(DEFAULT_STACK_SIZE);
 }
 
 void *__lwt_stack_return(void *stk){
-	// recover memory for a lwt's stack for reuse 
+	/*
+         *  recover memory for a lwt's stack for reuse
+         */
+        free(stk);
+
 }
 
