@@ -7,7 +7,7 @@
 #define LWT_NULL NULL
 
 lwt_t lwt_pool[MAX_THD];// a thread pool for reuse, or a table to get tcb pointer by its id
-int Queue[MAX_THD];// a queue to store living thread
+lwt_t Queue[MAX_THD];// a queue to store living thread's pointer
 int queue_length=0;
 
 lwt_t current_thd;//global pointer to current executing thread
@@ -32,8 +32,26 @@ void* lwt_die(void *ret){
 	// kill current thread
 }
 
-void lwt_yield(lwt_t thd_handle){
-	// yield current thread and call schedule funtion, dispatch and schedule
+void lwt_yield(lwt_t thd){
+	// yield current thread to thd or call schedule funtion when thd is NULL
+	lwt_t current = lwt_current();
+	if(thd!=LWT_NULL){//how about it is not ready?
+		if(thd->lwt_status==READY){
+			current->tcb_status=READY;
+			__lwt_dispatch(thd,current);
+			current_thd = thd;
+			thd->tcb_status=RUN;
+		}
+		else{
+			__lwt_schedule();
+		}
+		return;
+	}
+	else{
+		__lwt_schedule();
+		return;
+	}
+
 }
 
 lwt_t lwt_current(){
@@ -64,8 +82,36 @@ int lwt_info(lwt_info_t t){
  * Internal functions.
  */
 void __lwt_schedule(void){
-	// scheduling
+	// scheduling: switch to next thread in the queue.
+	if(queue_length<2){//situation 1: no more than 1 thread in queue, return directly
+		return;
+	}
+	lwt_t next_thd=LWT_NULL;//situation 2: if there are at least 2 thread in queue, try to set next_thd
+	int i=current_thd->queue_index;//get the position of current thread, and find next READY thread.
+	i++;
+	lwt_status_t temp=Queue[i]->lwt_status;
+	while(temp!=READY){
+		i++;
+		if(i==queue_length){//when reach the last one, back to first
+			i=0;
+		}
+		temp=Queue[i]->lwt_status;
+		if(i==current_thd->queue_index){//back to current
+			return;
+		}
+	}
+	next_thd=Queue[i];
+	if(next_thd==LWT_NULL){
+		return;
+	}//at this point, we get a READY next thread other than current
+	if(current_thd->status==RUN){//What if it is COMPLETE?
+		current_thd->lwt_status=READY;
+	}
+	next_thd->lwt_status=RUN;
+	current_thd=next_thd;//remember to update the global variable current_thd
+	__lwt_dispatch(next_thd,current_thd);
 }
+
 
 void __lwt_dispatch(lwt_t current, lwt_t next){
 	// context switch from current to next
