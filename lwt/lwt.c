@@ -42,11 +42,13 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
         /*
          * add id to queue and update length
          */
+        Queue[thd_handle->id] = thd_handle;
+        queue_length += 1; 
+
         /*
          * Add the thread to scheduler.
          */
-        Queue[thd_handle->id] = thd_handle;
-        queue_length += 1; 
+        thd_handle->tcb_status = READY;
 
         return thd_handle;
 }
