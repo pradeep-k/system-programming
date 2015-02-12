@@ -64,9 +64,12 @@ void* lwt_die(void *ret){
 
 void lwt_yield(lwt_t thd)
 {
-	// yield current thread to thd or call schedule funtion when thd is NULL
+	/*
+         *  yield current thread to thd or call schedule funtion when thd is NULL
+         */
 	lwt_t current = lwt_current();
-	if(thd!=LWT_NULL) {//how about it is not ready?
+
+	if(thd!=LWT_NULL) { //how about it is not ready?
 		if(thd->lwt_status==READY) {
 			current->tcb_status=READY;
 			current_thd = thd;
@@ -77,25 +80,26 @@ void lwt_yield(lwt_t thd)
 			__lwt_schedule();
 		}
 		return;
-	}
-	else{
+	} else{
 		__lwt_schedule();
 		return;
 	}
-
 }
 
-lwt_t lwt_current(){
+lwt_t lwt_current()
+{
 	// return a pointer to current thread
 	return current_thd;
 }
 
-int lwt_id(lwt_t thd){
+int lwt_id(lwt_t thd)
+{
 	// return the unique id for the thread
 	return thd->id;
-}//done
+}
 
-int lwt_info(lwt_info_t t){
+int lwt_info(lwt_info_t t)
+{
 	// debuggingn helper
 	switch(t){
 		case LWT_INFO_NTHD_RUNNABLE:
@@ -112,39 +116,45 @@ int lwt_info(lwt_info_t t){
 /*
  * Internal functions.
  */
-void __lwt_schedule(void){
+
+void __lwt_schedule(void)
+{
 	// scheduling: switch to next thread in the queue.
-	if(queue_length<2){//situation 1: no more than 1 thread in queue, return directly
+	if(queue_length<2) {//situation 1: no more than 1 thread in queue, return directly
 		return;
 	}
 	lwt_t next_thd=LWT_NULL;//situation 2: if there are at least 2 thread in queue, try to set next_thd
 	int i=current_thd->queue_index;//get the position of current thread, and find next READY thread.
 	i++;
 	lwt_status_t temp=Queue[i]->lwt_status;
-	while(temp!=READY){
+	while(temp!=READY) {
 		i++;
 		if(i==queue_length){//when reach the last one, back to first
 			i=0;
 		}
 		temp=Queue[i]->lwt_status;
-		if(i==current_thd->queue_index){//back to current
+		if(i==current_thd->queue_index) {//back to current
 			return;
 		}
 	}
+
 	next_thd=Queue[i];
-	if(next_thd==LWT_NULL){
+	if(next_thd==LWT_NULL) {
 		return;
 	}//at this point, we get a READY next thread other than current
-	if(current_thd->status==RUN){//What if it is COMPLETE?
+	
+        if(current_thd->status==RUN) {//What if it is COMPLETE?
 		current_thd->lwt_status=READY;
 	}
+
 	next_thd->lwt_status=RUN;
 	current_thd=next_thd;//remember to update the global variable current_thd
 	__lwt_dispatch(next_thd,current_thd);
 }
 
 
-void __lwt_dispatch(lwt_t current, lwt_t next){
+void __lwt_dispatch(lwt_t current, lwt_t next)
+{
 	// context switch from current to next
        __asm__ __volatile__ (
                "pusha\n\t"
