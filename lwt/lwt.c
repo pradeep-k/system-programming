@@ -18,7 +18,9 @@ int zombies_num=0;//global variable for lwt_info
 
 
 lwt_t lwt_create(lwt_fn_t fn, void *data){
-	// set stack, add id to queue and update length
+	// create stack, add id to queue and update length
+        // Set the sp and ip
+        // Add the thread to scheduler.
 }
 
 
@@ -45,7 +47,7 @@ int lwt_id(lwt_t thd){
 }//done
 
 int lwt_info(lwt_info_t t){
-	// debugging helper
+	// debuggingn helper
 	switch(t){
 		case LWT_INFO_NTHD_RUNNABLE:
 			return runnable_num;
@@ -59,8 +61,8 @@ int lwt_info(lwt_info_t t){
 }//done
 
 /*
-    * Internal functions.
-     */
+ * Internal functions.
+ */
 void __lwt_schedule(void){
 	// scheduling
 }
@@ -85,8 +87,26 @@ void __lwt_dispatch(lwt_t current, lwt_t next){
        );
 }
 
-void __lwt_trampoline(){
-	// ?
+//void __lwt_trampoline(lwt_t new_lwt, lwt_fn_t fn, void*data)
+void __lwt_trampoline();
+{
+        
+        /* 0. At a time, only one thread runs, Get the tcb data from the global variable, 
+         * which scheduler should have set.
+         */
+        lwt_t current = lwt_current();
+        
+        /*
+         * 1. Call the fn function. Save its return value so that the thread which joins it
+         * can get its value.
+         */
+        lwt_current->return_value = lwt_current->fn(lwt_current->data);
+        /*
+         * 2. Destroy the stack, tcb etc except the return value.
+         *  (How to destroy the stack?? as we are in the stack)
+         * 3. Make it as zombie, so that it should not get scheduled. 
+         */
+
 }
 
 void *__lwt_stack_get(void){
