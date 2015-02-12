@@ -55,9 +55,10 @@ void lwt_yield(lwt_t thd){
 	if(thd!=LWT_NULL){//how about it is not ready?
 		if(thd->lwt_status==READY){
 			current->tcb_status=READY;
-			__lwt_dispatch(thd,current);
 			current_thd = thd;
 			thd->tcb_status=RUN;
+			__lwt_dispatch(thd,current);
+			return;
 		}
 		else{
 			__lwt_schedule();
