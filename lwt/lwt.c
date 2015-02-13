@@ -3,11 +3,28 @@
  */
 
 #include <pthread.h>
+#include "ring_buffer.h"
+
 #define MAX_THD 64
 #define LWT_NULL NULL
 #define DEFAULT_STACK_SIZE 1048576 //1MB
 
-lwt_t   lwt_pool[MAX_THD];// a thread pool for reuse, or a table to get tcb pointer by its id
+/*
+ * A thread pool for reuse. 
+ */
+ring_buffer_t   *lwt_pool;
+
+/*
+ * Zombie queue. Move the thread to lwt_pool after join.
+ */
+ring_buffer_t *lwt_zombie;
+
+/*
+ * Run queue
+ */
+ring_buffer_t *lwt_runqueue;
+
+
 lwt_t   Queue[MAX_THD];// a queue to store living thread's pointer
 int     queue_length=0;
 
@@ -24,42 +41,68 @@ main_tcb.id=0;
 main_tcb.queue_index=0;
 Queue[0]=&main_tcb;
 
+/*
+ * APIs
+ */
+
 lwt_t lwt_create(lwt_fn_t fn, void *data)
 {
-        lwt_t thd_handle = (lwt_t)malloc(sizeof(*lwt_t));
-        memset(thd_handle, 0, sizeof(*lwt_t));
+        lwt_t thd_handle; 
+
+        if (!is_empty(lwt_pool)) {
+                thd_handle = pop(lwt_pool);
+        } else {
+
+                lwt_t thd_handle = (lwt_t)malloc(sizeof(*lwt_t));
+                memset(thd_handle, 0, sizeof(*lwt_t));
+                thd_handle->sp = __lwt_stack_get();
+                thd_hanlde->ip = __lwt_trampoline;
+        }
+        
 
 	/*
-         * create stack and set the sp and ip.
+         * Other Initialization.
          */
-        thd_handle->sp = __lwt_stack_get();
-        thd_hanlde->ip = __lwt_trampoline;
         thd_handle->bp = 0;
         thd_handle->fn = fn;
         thd_handle->data = data;
         thd_handle->id = 1; //XXX 
+        
+        /*
+         * Mark the status as READY..
+         */
+        thd_handle->tcb_status = READY;
 
         /*
          * add id to queue and update length
          */
-        Queue[thd_handle->id] = thd_handle;
-        queue_length += 1; 
+        push(lwt_runqueue, thd_handle);
 
-        /*
-         * Add the thread to scheduler.
-         */
-        thd_handle->tcb_status = READY;
-
+        runnable_num += 1; 
+        
         return thd_handle;
 }
 
 
-void* lwt_join(lwt_t thd_handle){
+void* lwt_join(lwt_t thd_handle)
+{
 	// wait for a thread
 }
 
-void* lwt_die(void *ret){
-	// kill current thread
+// kill current thread
+void* lwt_die(void *ret)
+{
+        lwt_t thd_handle = lwt_current();
+
+        /*
+         * Destroy the stack, tcb etc except the return value.
+         *  (How to destroy the stack?? as we are in the stack)
+         * Make it as zombie, so that it should not get scheduled. 
+         */
+        thd_handle->return_value = ret;
+        thd_handle->tcb_status = COMPLETE;
+        lwt_yield(LWT_NULL);
+
 }
 
 void lwt_yield(lwt_t thd)
@@ -172,9 +215,14 @@ void __lwt_dispatch(lwt_t current, lwt_t next)
                :"r"(current->sp),"r"(current->ip)
                :"eax","ebx"
        );
+       /*
+        * By the time, we have reached here, we are already executing the next thread.
+        * So, if the older thread has died, then cleanup the stack and other stuff.
+        * XXX
+        */
+
 }
 
-//void __lwt_trampoline(lwt_t new_lwt, lwt_fn_t fn, void*data)
 void __lwt_trampoline();
 {
         
@@ -187,12 +235,7 @@ void __lwt_trampoline();
          * Call the fn function. Save its return value so that the thread which joins it
          * can get its value.
          */
-        lwt_current->return_value = lwt_current->fn(lwt_current->data);
-        /*
-         * Destroy the stack, tcb etc except the return value.
-         *  (How to destroy the stack?? as we are in the stack)
-         * Make it as zombie, so that it should not get scheduled. 
-         */
+        lwt_die(lwt_current->fn(lwt_current->data));
 
 }
 
