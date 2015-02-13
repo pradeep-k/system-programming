@@ -26,6 +26,7 @@ struct lwt_tcb{		//thread control block;
         void* data;
 	int id;//we may keep a lwt_t array or pool to store all lwt with id as its index, and a current queue to store ids for all currently living lwt
         lwt_status_t tcb_status; 
+	int queue_index;
 };
 
 typedef struct lwt_tcb* lwt_t;	//a pointer to tcb, use it as pthread_t
@@ -70,4 +71,5 @@ void *__lwt_stack_get(void);
 
 void __lwt_stack_return(void *stk);
 
+void __lwt_dequeue(lwt_t thd);
 #endif
