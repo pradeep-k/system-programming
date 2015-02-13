@@ -5,6 +5,8 @@
 #ifndef __LWT_H__
 #define __LWT_H__
 
+#define LWT_NULL NULL
+
 typedef void* (*lwt_fn_t) (void *);
 
 typedef enum{
@@ -38,6 +40,9 @@ typedef enum{
 /*
  * lightweight thread APIs.
  */
+
+void lwt_init(unsigned int thread_pool_size);
+
 lwt_t lwt_create(lwt_fn_t fn, void* data);
 
 void* lwt_join(lwt_t thd_handle);
