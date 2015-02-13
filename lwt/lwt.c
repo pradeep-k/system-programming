@@ -2,7 +2,10 @@
  * Pradeep, Yang
  */
 
+#include<stdlib.h>
 #include <pthread.h>
+#include <string.h>
+
 #include "ring_buffer.h"
 
 #define MAX_THD 64
@@ -36,14 +39,26 @@ int blocked_num=0;
 int zombies_num=0;//global variable for lwt_info
 
 /*initialize the lwt_tcb for main function*/
+
+/*void init_lwt_main()
+{
+
 struct lwt_tcb main_tcb;
 main_tcb.id=0;
 main_tcb.queue_index=0;
 Queue[0]=&main_tcb;
+} */
 
 /*
  * APIs
  */
+
+void lwt_init(unsigned int thread_pool_size)
+{
+        ring_buffer_create(&lwt_pool, thread_pool_size);
+        ring_buffer_create(&lwt_zombie, thread_pool_size);
+        ring_buffer_create(&lwt_runqueue, thread_pool_size);
+}
 
 lwt_t lwt_create(lwt_fn_t fn, void *data)
 {
@@ -53,16 +68,16 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
                 thd_handle = pop(lwt_pool);
         } else {
 
-                lwt_t thd_handle = (lwt_t)malloc(sizeof(*lwt_t));
-                memset(thd_handle, 0, sizeof(*lwt_t));
+                thd_handle = (lwt_t)malloc(sizeof(*thd_handle));
+                memset(thd_handle, 0, sizeof(*thd_handle));
                 thd_handle->sp = __lwt_stack_get();
-                thd_hanlde->ip = __lwt_trampoline;
         }
         
 
 	/*
          * Other Initialization.
          */
+        thd_handle->ip = __lwt_trampoline;
         thd_handle->bp = 0;
         thd_handle->fn = fn;
         thd_handle->data = data;
@@ -74,7 +89,7 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
         thd_handle->tcb_status = READY;
 
         /*
-         * add id to queue and update length
+         * add it to run queue
          */
         push(lwt_runqueue, thd_handle);
 
@@ -83,56 +98,15 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
         return thd_handle;
 }
 
-
-void* lwt_join(lwt_t thd_handle)
-{
-	// wait for a thread
-}
-
-// kill current thread
-void* lwt_die(void *ret)
-{
-        lwt_t thd_handle = lwt_current();
-
-        /*
-         * Destroy the stack, tcb etc except the return value.
-         *  (How to destroy the stack?? as we are in the stack)
-         * Make it as zombie, so that it should not get scheduled. 
-         */
-        thd_handle->return_value = ret;
-        thd_handle->tcb_status = COMPLETE;
-        lwt_yield(LWT_NULL);
-
-}
-
-void lwt_yield(lwt_t thd)
-{
-	/*
-         *  yield current thread to thd or call schedule funtion when thd is NULL
-         */
-	lwt_t current = lwt_current();
-
-	if(thd!=LWT_NULL) { //how about it is not ready?
-		if(thd->lwt_status==READY) {
-			current->tcb_status=READY;
-			current_thd = thd;
-			thd->tcb_status=RUN;
-			__lwt_dispatch(thd,current);
-			return;
-		} else {
-			__lwt_schedule();
-		}
-		return;
-	} else{
-		__lwt_schedule();
-		return;
-	}
-}
-
 lwt_t lwt_current()
 {
 	// return a pointer to current thread
 	return current_thd;
+}
+
+void lwt_current_set(lwt_t new_thd)
+{
+        current_thd = new_thd;
 }
 
 int lwt_id(lwt_t thd)
@@ -151,10 +125,56 @@ int lwt_info(lwt_info_t t)
 			return blocked_num;
 		case LWT_INFO_NTHD_ZOMBIES:
 			return zombies_num;
-		case default:
+		default:
 			return 0;
 	}
 }//done
+
+void* lwt_join(lwt_t thd_handle)
+{
+	// wait for a thread
+        return 0;
+}
+
+// kill current thread
+void lwt_die(void *ret)
+{
+        lwt_t thd_handle = lwt_current();
+
+        /*
+         * Destroy the stack, tcb etc except the return value.
+         *  (How to destroy the stack?? as we are in the stack)
+         * Make it as zombie, so that it should not get scheduled. 
+         */
+        thd_handle->return_value = ret;
+        thd_handle->tcb_status = COMPLETE;
+        __lwt_schedule();
+
+}
+
+void lwt_yield(lwt_t thd)
+{
+	/*
+         *  yield current thread to thd or call schedule funtion when thd is NULL
+         */
+	lwt_t current = lwt_current();
+
+	if(thd != LWT_NULL) { //how about it is not ready?
+		if(thd->tcb_status == READY) {
+			current->tcb_status = READY;
+			current_thd = thd;
+			thd->tcb_status = RUN;
+			__lwt_dispatch(thd, current);
+			return;
+		} else {
+			__lwt_schedule();
+		}
+		return;
+	} else{
+		__lwt_schedule();
+		return;
+	}
+}
 
 /*
  * Internal functions.
@@ -163,36 +183,30 @@ int lwt_info(lwt_info_t t)
 void __lwt_schedule(void)
 {
 	// scheduling: switch to next thread in the queue.
-	if(queue_length<2) {//situation 1: no more than 1 thread in queue, return directly
-		return;
-	}
-	lwt_t next_thd=LWT_NULL;//situation 2: if there are at least 2 thread in queue, try to set next_thd
-	int i=current_thd->queue_index;//get the position of current thread, and find next READY thread.
-	i++;
-	lwt_status_t temp=Queue[i]->lwt_status;
-	while(temp!=READY) {
-		i++;
-		if(i==queue_length){//when reach the last one, back to first
-			i=0;
-		}
-		temp=Queue[i]->lwt_status;
-		if(i==current_thd->queue_index) {//back to current
-			return;
-		}
-	}
 
-	next_thd=Queue[i];
-	if(next_thd==LWT_NULL) {
-		return;
-	}//at this point, we get a READY next thread other than current
-	
-        if(current_thd->status==RUN) {//What if it is COMPLETE?
-		current_thd->lwt_status=READY;
-	}
+	lwt_t next_thd = pop(lwt_runqueue);
+        lwt_t current_thd = lwt_current();
 
-	next_thd->lwt_status=RUN;
-	current_thd=next_thd;//remember to update the global variable current_thd
+        /*
+         * Just one thread case.
+         * Continue running the same
+         * XXX:what if main thread called die and it is the only thread.
+         */
+        if (LWT_NULL == next_thd) {
+            return;
+        }
+
+        if (current_thd->tcb_status == COMPLETE) {
+                push(lwt_zombie, current_thd);
+        }
+        else {
+            push(lwt_runqueue, current_thd);
+        }
+       
+        lwt_current_set(next_thd);
+
 	__lwt_dispatch(next_thd,current_thd);
+        
 }
 
 
@@ -215,15 +229,16 @@ void __lwt_dispatch(lwt_t current, lwt_t next)
                :"r"(current->sp),"r"(current->ip)
                :"eax","ebx"
        );
+       
        /*
         * By the time, we have reached here, we are already executing the next thread.
         * So, if the older thread has died, then cleanup the stack and other stuff.
-        * XXX
+        * XXX: Only in case of no thread pool. 
         */
 
 }
 
-void __lwt_trampoline();
+void __lwt_trampoline()
 {
         
         /* At a time, only one thread runs, Get the tcb data from the global variable, 
@@ -235,7 +250,7 @@ void __lwt_trampoline();
          * Call the fn function. Save its return value so that the thread which joins it
          * can get its value.
          */
-        lwt_die(lwt_current->fn(lwt_current->data));
+        lwt_die(current->fn(current->data));
 
 }
 
@@ -246,7 +261,7 @@ void *__lwt_stack_get(void){
         return malloc(DEFAULT_STACK_SIZE);
 }
 
-void *__lwt_stack_return(void *stk){
+void __lwt_stack_return(void *stk){
 	/*
          *  recover memory for a lwt's stack for reuse
          */

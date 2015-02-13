@@ -5,6 +5,15 @@
 #ifndef __LWT_H__
 #define __LWT_H__
 
+typedef void* (*lwt_fn_t) (void *);
+
+typedef enum{
+	RUN=1,
+	WAIT,
+	READY,
+	COMPLETE
+}lwt_status_t;
+
 /* data structures */
 struct lwt_tcb{		//thread control block;
 	void* ip;
@@ -17,21 +26,14 @@ struct lwt_tcb{		//thread control block;
         lwt_status_t tcb_status; 
 };
 
-typedef void* (*lwt_fn_t) (void *);
 typedef struct lwt_tcb* lwt_t;	//a pointer to tcb, use it as pthread_t
 typedef struct lwt_tcb tcb;
+
 typedef enum{
 	LWT_INFO_NTHD_RUNNABLE=0,
 	LWT_INFO_NTHD_BLOCKED,
 	LWT_INFO_NTHD_ZOMBIES
 }lwt_info_t;
-
-typedef enum{
-	RUN=1,
-	WAIT,
-	READY,
-	COMPLETE
-}lwt_status_t;
 
 /*
  * lightweight thread APIs.
@@ -40,7 +42,7 @@ lwt_t lwt_create(lwt_fn_t fn, void* data);
 
 void* lwt_join(lwt_t thd_handle);
 
-void* lwt_die(void *ret);
+void lwt_die(void *ret);
 
 void lwt_yield(lwt_t thd_handle);
 
@@ -61,6 +63,6 @@ void __lwt_trampoline();
 
 void *__lwt_stack_get(void);
 
-void *__lwt_stack_return(void *stk);
+void __lwt_stack_return(void *stk);
 
 #endif
