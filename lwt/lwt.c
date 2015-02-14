@@ -5,11 +5,13 @@
 #include<stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <assert.h>
 
-#include "ring_buffer.h"
+#include "ring.h"
 
 #define MAX_THD 64
 #define DEFAULT_STACK_SIZE 1048576 //1MB
+
 
 /*
  * A thread pool for reuse. 
@@ -20,6 +22,11 @@ ring_buffer_t   *lwt_pool;
  * Zombie queue. Move the thread to lwt_pool after join.
  */
 ring_buffer_t *lwt_zombie;
+
+/*
+ * blocked threads
+ */
+ring_buffer_t *lwt_blocked;
 
 /*
  * Run queue
@@ -66,6 +73,7 @@ void lwt_init(unsigned int thread_pool_size)
         ring_buffer_create(&lwt_pool, thread_pool_size);
         ring_buffer_create(&lwt_zombie, thread_pool_size);
         ring_buffer_create(&lwt_runqueue, thread_pool_size);
+        ring_buffer_create(&lwt_blocked, thread_pool_size);
         lwt_main_init(); 
 }
 
@@ -137,34 +145,63 @@ int lwt_info(lwt_info_t t)
 void* lwt_join(lwt_t thd_handle)
 {
 	// wait for a thread
+        lwt_t current = lwt_current();
+
+        current->tcb_status = WAIT;
+
+        /*
+         * Not more than a thread should wait on a thread.
+         */
+        assert(thd_handle->lwt_blocked);
+
+        thd_handle->lwt_blocked = current;
+
+        /*
+         * Now we are blocked, yield to some other thread.
+         */
+        __lwt_schedule();
         return 0;
 }
 
 // kill current thread
 void lwt_die(void *ret)
 {
-        lwt_t thd_handle = lwt_current();
+        lwt_t current = lwt_current();
+        lwt_t blocked = current->lwt_blocked;
 
         /*
          * Destroy the stack, tcb etc except the return value.
          *  (How to destroy the stack?? as we are in the stack)
          * Make it as zombie, so that it should not get scheduled. 
          */
-        thd_handle->return_value = ret;
-        thd_handle->tcb_status = COMPLETE;
+        current->return_value = ret;
+        
+        /*
+         * Unblock the thread that was waiting on this thread.
+         * If one is wating, you don't need to move to zombie.
+         * Move to thread pool directly.
+         */
+        if (LWT_NULL != blocked) {
+                blocked->tcb_status = READY;
+                current->tcb_status = FREE;
+
+        } else {
+                current->tcb_status = COMPLETE;
+        }
+        
         __lwt_schedule();
 
 }
 
-void lwt_yield(lwt_t thd)
+void lwt_yield(lwt_t next)
 {
 	/*
          *  yield current thread to thd or call schedule funtion when thd is NULL
          */
 	lwt_t current = lwt_current();
 
-	if(thd != LWT_NULL) { //how about it is not ready?
-		if(thd->tcb_status == READY) {
+        /*if (thd != LWT_NULL) { 
+		if (thd->tcb_status == READY) {
 			current->tcb_status = READY;
 			current_thd = thd;
 			thd->tcb_status = RUN;
@@ -174,9 +211,19 @@ void lwt_yield(lwt_t thd)
 			__lwt_schedule();
 		}
 		return;
-	} else{
+        }*/
+
+        if (next != LWT_NULL) {
+		current->tcb_status = READY;
+		next->tcb_status = RUN;
+                remove(lwt_runqueue, next);
+                push(lwt_runqueue, current); 
+                lwt_current_set(next);
+                __lwt_dispatch(next, current);
+                return;
+        } else {
 		__lwt_schedule();
-		return;
+                return;                
 	}
 }
 
@@ -190,6 +237,7 @@ void __lwt_schedule(void)
 
 	lwt_t next = pop(lwt_runqueue);
         lwt_t current = lwt_current();
+        
 
         /*
          * Just one thread case.
@@ -200,6 +248,8 @@ void __lwt_schedule(void)
             return;
         }
 
+        assert(COMPLETE !=  next->tcb_status);
+
         if (current->tcb_status == COMPLETE) {
                 push(lwt_zombie, current);
         }
@@ -207,7 +257,7 @@ void __lwt_schedule(void)
                 current->tcb_status = READY;
                 push(lwt_runqueue, current);
         }
-       
+         
         lwt_current_set(next);
 
 	__lwt_dispatch(next, current);

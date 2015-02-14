@@ -13,7 +13,8 @@ typedef enum{
 	RUN=1,
 	WAIT,
 	READY,
-	COMPLETE
+	COMPLETE,
+        FREE // Complete and has been joined
 }lwt_status_t;
 
 /* data structures */
@@ -24,8 +25,21 @@ struct lwt_tcb{		//thread control block;
         void* return_value;
         lwt_fn_t fn;   
         void* data;
-	int id;//we may keep a lwt_t array or pool to store all lwt with id as its index, and a current queue to store ids for all currently living lwt
-        lwt_status_t tcb_status; 
+        /*
+         * we may keep a lwt_t array or pool to store all lwt with id
+         * as its index, and a current queue to store ids for all currently 
+         * living lwt
+         */
+	int id;
+        lwt_status_t tcb_status;
+        
+        /*
+         * This thread called join. 
+         * Unblock it after we are dead. 
+         */
+        struct lwt_tcb* lwt_blocked;
+        struct lwt_tcb* next;
+        struct lwt_tcb* prev;
 };
 
 typedef struct lwt_tcb* lwt_t;	//a pointer to tcb, use it as pthread_t
