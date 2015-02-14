@@ -18,7 +18,7 @@
 int ring_buffer_create(ring_buffer_t **prb, unsigned int size)
 {
         *prb = (ring_buffer_t*)malloc(sizeof(ring_buffer_t));
-        (*prb)->buf = (lwt_t*)malloc(size);
+        (*prb)->buf = (lwt_t*)calloc(size, sizeof(tcb));
         (*prb)->head = 0;
         (*prb)->tail = 0;
         (*prb)->count = 0; 

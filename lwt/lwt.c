@@ -188,28 +188,29 @@ void __lwt_schedule(void)
 {
 	// scheduling: switch to next thread in the queue.
 
-	lwt_t next_thd = pop(lwt_runqueue);
-        lwt_t current_thd = lwt_current();
+	lwt_t next = pop(lwt_runqueue);
+        lwt_t current = lwt_current();
 
         /*
          * Just one thread case.
          * Continue running the same
          * XXX:what if main thread called die and it is the only thread.
          */
-        if (LWT_NULL == next_thd) {
+        if (LWT_NULL == next) {
             return;
         }
 
-        if (current_thd->tcb_status == COMPLETE) {
-                push(lwt_zombie, current_thd);
+        if (current->tcb_status == COMPLETE) {
+                push(lwt_zombie, current);
         }
         else {
-            push(lwt_runqueue, current_thd);
+                current->tcb_status = READY;
+                push(lwt_runqueue, current);
         }
        
-        lwt_current_set(next_thd);
+        lwt_current_set(next);
 
-	__lwt_dispatch(next_thd,current_thd);
+	__lwt_dispatch(next, current);
         
 }
 
@@ -219,18 +220,18 @@ void __lwt_dispatch(lwt_t next, lwt_t current)
 	// context switch from current to next
        __asm__ __volatile__ (
                "pusha\n\t"
-               "movl %%esp,%2\n\t"
+               "movl %%esp,%0\n\t"
                "call get_eip\n\t"// source: stack overflow.
                "get_eip:\n\t"
                "popl %%eax\n\t"
-               "addl $13, %%eax\n\t" // exactly 13 bytes of instructions are there between this and ret
-               "movl %%eax,%3\n\t"
-               "movl %0,%%esp\n\t"
-               "movl %1,%%ebx\n\t"
+               "addl $12, %%eax\n\t" // exactly 13 bytes of instructions are there between this and ret
+               "movl %%eax,%1\n\t"
+               "movl %2,%%esp\n\t"
+               "movl %3,%%ebx\n\t"
                "jmp *%%ebx\n\t"
                "popa\n\t"
-               :"=m"(next->sp),"=m"(next->ip)
-               :"r"(current->sp),"r"(current->ip)
+               :"=m"(current->sp),"=m"(current->ip)
+               :"r"(next->sp),"r"(next->ip)
                :"eax","ebx"
        );
        
