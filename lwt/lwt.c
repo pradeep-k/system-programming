@@ -152,7 +152,7 @@ void* lwt_join(lwt_t thd_handle)
         /*
          * Not more than a thread should wait on a thread.
          */
-        assert(thd_handle->lwt_blocked);
+        assert(0 == thd_handle->lwt_blocked);
 
         thd_handle->lwt_blocked = current;
 
@@ -252,6 +252,8 @@ void __lwt_schedule(void)
 
         if (current->tcb_status == COMPLETE) {
                 push(lwt_zombie, current);
+        } else if (current->tcb_status == WAIT) {
+                push(lwt_blocked, current);
         }
         else {
                 current->tcb_status = READY;
