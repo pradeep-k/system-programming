@@ -10,8 +10,10 @@
 #include "ring.h"
 
 #define MAX_THD 64
-#define DEFAULT_STACK_SIZE 1048576 //1MB
+//#define DEFAULT_STACK_SIZE 1048576 //1MB
+#define DEFAULT_STACK_SIZE 2048576 //1MB
 
+ unsigned int thd_pool_size = 5000;
 
 /*
  * A thread pool for reuse. 
@@ -132,11 +134,11 @@ int lwt_info(lwt_info_t t)
 	// debuggingn helper
 	switch(t){
 		case LWT_INFO_NTHD_RUNNABLE:
-			return runnable_num;
+			return ring_size(lwt_runqueue) + 1;
 		case LWT_INFO_NTHD_BLOCKED:
-			return blocked_num;
+			return ring_size(lwt_blocked);
 		case LWT_INFO_NTHD_ZOMBIES:
-			return zombies_num;
+			return ring_size(lwt_zombie);
 		default:
 			return 0;
 	}
@@ -153,8 +155,14 @@ void* lwt_join(lwt_t thd_handle)
          * Not more than a thread should wait on a thread.
          */
         assert(0 == thd_handle->lwt_blocked);
-
-        thd_handle->lwt_blocked = current;
+        
+        if (thd_handle->tcb_status ==  COMPLETE) {
+                thd_handle->tcb_status = FREE;
+                remove(lwt_zombie, thd_handle);
+                push(lwt_pool, thd_handle);
+        } else {
+                thd_handle->lwt_blocked = current;
+        }
 
         /*
          * Now we are blocked, yield to some other thread.
@@ -184,6 +192,12 @@ void lwt_die(void *ret)
         if (LWT_NULL != blocked) {
                 blocked->tcb_status = READY;
                 current->tcb_status = FREE;
+                current->lwt_blocked = LWT_NULL;
+                /*
+                 * Put it in the runqueue
+                 */
+                //XXX remove(lwt_blocked, blocked);
+                push(lwt_runqueue, blocked);
 
         } else {
                 current->tcb_status = COMPLETE;
@@ -245,6 +259,20 @@ void __lwt_schedule(void)
          * XXX:what if main thread called die and it is the only thread.
          */
         if (LWT_NULL == next) {
+            /*
+             * See if someone was waiting on this thread.
+             */
+            lwt_t blocked = current->lwt_blocked;
+            if (LWT_NULL != blocked) {
+                if (blocked->tcb_status == WAIT) {
+                        //remove(lwt_blocked, blocked);
+                        push(lwt_runqueue, blocked);
+                } else if (blocked->tcb_status == COMPLETE) {
+                        remove(lwt_zombie, blocked);
+                        push(lwt_pool, blocked);
+                }
+                current->lwt_blocked = LWT_NULL;
+            }
             return;
         }
 
@@ -253,7 +281,20 @@ void __lwt_schedule(void)
         if (current->tcb_status == COMPLETE) {
                 push(lwt_zombie, current);
         } else if (current->tcb_status == WAIT) {
-                push(lwt_blocked, current);
+               //XXX push(lwt_blocked, current);
+        }
+        else if (current->tcb_status == FREE) {
+                if (ring_size(lwt_pool) <= thd_pool_size) {
+                        push(lwt_pool, current);
+                } else {
+                        /*
+                         * Free the node
+                         */
+                        lwt_t free_node  = pop(lwt_pool);
+                        __lwt_stack_return(free_node->sp);
+                        free(free_node);
+                        push(lwt_pool, current);
+                }
         }
         else {
                 current->tcb_status = READY;

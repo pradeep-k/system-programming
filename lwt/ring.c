@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include "ring.h"
 
 /*
@@ -34,14 +35,39 @@ void cleanup(ring_buffer_t* rb)
 }
 
 int push(ring_buffer_t *ring, lwt_t lwt) 
-{   
+{  
+        if (ring->count == 0) {
+                ring->head = lwt;
+                ring->tail = lwt;
+                lwt->next = NULL;
+                lwt->prev = NULL;
+                ring->count++;
+                return 0;
+        } else if (ring->count == 1) {
+                ring->tail = lwt;
+
+                ring->head->next = lwt;
+                ring->head->prev = lwt;
+
+                lwt->next = ring->head;
+                lwt->prev = ring->head;
+                
+                ring->count++;
+                return 0;
+        }
+                
+        
         lwt_t next = ring->tail->next;
+        lwt_t prev = ring->tail->prev;
 
         lwt->prev = ring->tail;
-        lwt->next = ring->tail->next;
+        lwt->next = next;
 
         next->prev = lwt;
+        prev->next = lwt;
+
         ring->tail = lwt;
+        ring->count++;
         
         return 0;
 }
@@ -57,12 +83,14 @@ lwt_t pop(ring_buffer_t *ring)
         } else if ( 1 == ring->count) {
                 ring->head = NULL;
                 ring->tail = NULL;
+                ring->count--;
                 return temp;
-        } else ( 2 == ring->count) {
+        } else if ( 2 == ring->count) {
                 ring->head = ring->tail;
-                ring->prev = NULL;
-                ring->next = NULL;
-                return NULL;
+                ring->head->prev = NULL;
+                ring->head->next = NULL;
+                ring->count--;
+                return temp;
         }
         
         prev = temp->prev;
@@ -72,6 +100,7 @@ lwt_t pop(ring_buffer_t *ring)
         next->prev = prev;
 
         ring->head = next;
+        ring->count--;
 
         return temp;
 }
@@ -97,6 +126,7 @@ int remove(ring_buffer_t* ring, lwt_t lwt)
         } else if ( 1 == ring->count ) {
                 ring->head = NULL;
                 ring->tail = NULL;
+                ring->count--;
                 return 0;
         } else if ( 2 == ring->count) {
                 if (lwt == ring->head) {
@@ -110,6 +140,7 @@ int remove(ring_buffer_t* ring, lwt_t lwt)
                 } else {
                     assert(0);
                 }
+                ring->count--;
                 return 0;
         } else {
                 prev = lwt->prev;
@@ -124,5 +155,11 @@ int remove(ring_buffer_t* ring, lwt_t lwt)
         } else if (lwt == ring->tail) {
                 ring->tail = lwt->prev;
         }
+        ring->count--;
         return 0;
+}
+
+int ring_size (ring_buffer_t* ring)
+{
+        return ring->count;
 }
