@@ -115,7 +115,7 @@ int is_empty(ring_buffer_t *ring_buffer)
         return (ring_buffer->size == ring_buffer->count);
 }*/
 
-int remove(ring_buffer_t* ring, lwt_t lwt)
+int remove_one(ring_buffer_t* ring, lwt_t lwt)
 {
         lwt_t prev = NULL;
         lwt_t next = NULL;

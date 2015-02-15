@@ -2,7 +2,8 @@
  * Pradeep, Yang
  */
 
-#include<stdlib.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <pthread.h>
 #include <string.h>
 #include <assert.h>
@@ -18,22 +19,22 @@
 /*
  * A thread pool for reuse. 
  */
-ring_buffer_t   *lwt_pool;
+ring_buffer_t   *lwt_pool = NULL;
 
 /*
  * Zombie queue. Move the thread to lwt_pool after join.
  */
-ring_buffer_t *lwt_zombie;
+ring_buffer_t *lwt_zombie = NULL;
 
 /*
  * blocked threads
  */
-ring_buffer_t *lwt_blocked;
+ring_buffer_t *lwt_blocked = NULL;
 
 /*
  * Run queue
  */
-ring_buffer_t *lwt_runqueue;
+ring_buffer_t *lwt_runqueue = NULL;
 
 
 lwt_t   Queue[MAX_THD];// a queue to store living thread's pointer
@@ -72,6 +73,10 @@ void lwt_main_init()
 
 void lwt_init(unsigned int thread_pool_size)
 {
+        if (NULL != lwt_runqueue) {
+            printf("LWT library already initialized\n");
+            return;
+        }
         ring_buffer_create(&lwt_pool, thread_pool_size);
         ring_buffer_create(&lwt_zombie, thread_pool_size);
         ring_buffer_create(&lwt_runqueue, thread_pool_size);
@@ -158,8 +163,10 @@ void* lwt_join(lwt_t thd_handle)
         
         if (thd_handle->tcb_status ==  COMPLETE) {
                 thd_handle->tcb_status = FREE;
-                remove(lwt_zombie, thd_handle);
+                remove_one(lwt_zombie, thd_handle);
                 push(lwt_pool, thd_handle);
+        } else if (thd_handle->tcb_status == FREE) {
+                assert(0); 
         } else {
                 thd_handle->lwt_blocked = current;
         }
@@ -168,7 +175,7 @@ void* lwt_join(lwt_t thd_handle)
          * Now we are blocked, yield to some other thread.
          */
         __lwt_schedule();
-        return 0;
+        return thd_handle->return_value;
 }
 
 // kill current thread
@@ -190,49 +197,48 @@ void lwt_die(void *ret)
          * Move to thread pool directly.
          */
         if (LWT_NULL != blocked) {
+                assert(blocked->tcb_status != COMPLETE);
                 blocked->tcb_status = READY;
-                current->tcb_status = FREE;
-                current->lwt_blocked = LWT_NULL;
-                /*
-                 * Put it in the runqueue
-                 */
                 //XXX remove(lwt_blocked, blocked);
                 push(lwt_runqueue, blocked);
+                
+                current->tcb_status = FREE;
+                current->lwt_blocked = LWT_NULL;
+                
+                if (ring_size(lwt_pool) >= thd_pool_size) {
+                        /*
+                         * Free the node
+                         */
+                        lwt_t free_node  = pop(lwt_pool);
+                        __lwt_stack_return(free_node->sp);
+                        free(free_node);
+                }
+                push(lwt_pool, current);
 
         } else {
                 current->tcb_status = COMPLETE;
+                push(lwt_zombie, current);
         }
         
         __lwt_schedule();
 
 }
 
+/*
+ *  yield current thread to thd or call schedule funtion when thd is NULL
+ */
 void lwt_yield(lwt_t next)
 {
-	/*
-         *  yield current thread to thd or call schedule funtion when thd is NULL
-         */
 	lwt_t current = lwt_current();
-
-        /*if (thd != LWT_NULL) { 
-		if (thd->tcb_status == READY) {
-			current->tcb_status = READY;
-			current_thd = thd;
-			thd->tcb_status = RUN;
-			__lwt_dispatch(thd, current);
-			return;
-		} else {
-			__lwt_schedule();
-		}
-		return;
-        }*/
 
         if (next != LWT_NULL) {
 		current->tcb_status = READY;
-		next->tcb_status = RUN;
-                remove(lwt_runqueue, next);
                 push(lwt_runqueue, current); 
+		
+                next->tcb_status = RUN;
+                remove_one(lwt_runqueue, next);
                 lwt_current_set(next);
+                
                 __lwt_dispatch(next, current);
                 return;
         } else {
@@ -265,43 +271,53 @@ void __lwt_schedule(void)
             lwt_t blocked = current->lwt_blocked;
             if (LWT_NULL != blocked) {
                 if (blocked->tcb_status == WAIT) {
-                        //remove(lwt_blocked, blocked);
-                        push(lwt_runqueue, blocked);
+                        if (current->tcb_status == COMPLETE || 
+                            current->tcb_status == FREE) {
+                                blocked->tcb_status = READY; 
+                                //remove(lwt_blocked, blocked);
+                                current->lwt_blocked = LWT_NULL;
+                                next = blocked;
+                        }
                 } else if (blocked->tcb_status == COMPLETE) {
-                        remove(lwt_zombie, blocked);
+                        remove_one(lwt_zombie, blocked);
                         push(lwt_pool, blocked);
+                        current->lwt_blocked = LWT_NULL;
+                        assert(0); 
                 }
-                current->lwt_blocked = LWT_NULL;
+            } else {
+                    //assert(0);
+                    return;
             }
-            return;
+        }
+
+        if (LWT_NULL == next) {
+                return;
         }
 
         assert(COMPLETE !=  next->tcb_status);
 
-        if (current->tcb_status == COMPLETE) {
+        /*if (current->tcb_status == COMPLETE) {
                 push(lwt_zombie, current);
-        } else if (current->tcb_status == WAIT) {
-               //XXX push(lwt_blocked, current);
-        }
-        else if (current->tcb_status == FREE) {
+        } else if (current->tcb_status == FREE) {
                 if (ring_size(lwt_pool) <= thd_pool_size) {
                         push(lwt_pool, current);
                 } else {
-                        /*
-                         * Free the node
-                         */
                         lwt_t free_node  = pop(lwt_pool);
                         __lwt_stack_return(free_node->sp);
                         free(free_node);
                         push(lwt_pool, current);
                 }
+        } else */
+        if (current->tcb_status == WAIT) {
+               //XXX push(lwt_blocked, current);
         }
-        else {
+        else if (current->tcb_status == RUN){
                 current->tcb_status = READY;
                 push(lwt_runqueue, current);
         }
          
         lwt_current_set(next);
+        next->tcb_status = RUN;
 
 	__lwt_dispatch(next, current);
         
