@@ -21,7 +21,7 @@ typedef enum{
 struct lwt_tcb{		//thread control block;
 	void* ip;
 	void* sp;
-	void* bp;
+	//void* bp;
         void* return_value;
         lwt_fn_t fn;   
         void* data;

@@ -17,7 +17,7 @@
  * Use push() and pop() to insert and remove the elements from it.
  */
 
-int ring_buffer_create(ring_buffer_t **prb, unsigned int size)
+int ring_buffer_create(ring_buffer_t **prb)
 {
         *prb = (ring_buffer_t*)calloc(1, sizeof(ring_buffer_t));
         (*prb)->head = 0;

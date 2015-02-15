@@ -14,7 +14,9 @@
 //#define DEFAULT_STACK_SIZE 1048576 //1MB
 #define DEFAULT_STACK_SIZE 2048576 //1MB
 
- unsigned int thd_pool_size = 5000;
+
+unsigned int thd_id = 0;
+unsigned int thd_pool_size = 50;
 
 /*
  * A thread pool for reuse. 
@@ -74,13 +76,12 @@ void lwt_main_init()
 void lwt_init(unsigned int thread_pool_size)
 {
         if (NULL != lwt_runqueue) {
-            printf("LWT library already initialized\n");
             return;
         }
-        ring_buffer_create(&lwt_pool, thread_pool_size);
-        ring_buffer_create(&lwt_zombie, thread_pool_size);
-        ring_buffer_create(&lwt_runqueue, thread_pool_size);
-        ring_buffer_create(&lwt_blocked, thread_pool_size);
+        ring_buffer_create(&lwt_pool );
+        ring_buffer_create(&lwt_zombie);
+        ring_buffer_create(&lwt_runqueue);
+        ring_buffer_create(&lwt_blocked);
         lwt_main_init(); 
 }
 
@@ -102,10 +103,10 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
          * Other Initialization.
          */
         thd_handle->ip = __lwt_trampoline;
-        thd_handle->bp = 0;
+        //thd_handle->bp = 0;
         thd_handle->fn = fn;
         thd_handle->data = data;
-        thd_handle->id = 1; //XXX 
+        thd_handle->id = thd_id++; //XXX 
         
         /*
          * Mark the status as READY..
@@ -116,8 +117,6 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
          * add it to run queue
          */
         push(lwt_runqueue, thd_handle);
-
-        runnable_num += 1; 
         
         return thd_handle;
 }
@@ -284,38 +283,22 @@ void __lwt_schedule(void)
                         current->lwt_blocked = LWT_NULL;
                         assert(0); 
                 }
-            } else {
-                    //assert(0);
-                    return;
+            }
+            if (LWT_NULL == next) {
+                return;
             }
         }
 
-        if (LWT_NULL == next) {
-                return;
-        }
 
         assert(COMPLETE !=  next->tcb_status);
 
-        /*if (current->tcb_status == COMPLETE) {
-                push(lwt_zombie, current);
-        } else if (current->tcb_status == FREE) {
-                if (ring_size(lwt_pool) <= thd_pool_size) {
-                        push(lwt_pool, current);
-                } else {
-                        lwt_t free_node  = pop(lwt_pool);
-                        __lwt_stack_return(free_node->sp);
-                        free(free_node);
-                        push(lwt_pool, current);
-                }
-        } else */
-        if (current->tcb_status == WAIT) {
-               //XXX push(lwt_blocked, current);
-        }
-        else if (current->tcb_status == RUN){
+        if (current->tcb_status == RUN){
                 current->tcb_status = READY;
                 push(lwt_runqueue, current);
+        } else if (current->tcb_status == WAIT) {
+               //XXX push(lwt_blocked, current);
         }
-         
+
         lwt_current_set(next);
         next->tcb_status = RUN;
 
@@ -324,7 +307,7 @@ void __lwt_schedule(void)
 }
 
 
-void __lwt_dispatch(lwt_t next, lwt_t current)
+/*void __lwt_dispatch(lwt_t next, lwt_t current)
 {
 	// context switch from current to next
        __asm__ __volatile__ (
@@ -333,7 +316,7 @@ void __lwt_dispatch(lwt_t next, lwt_t current)
                "call get_eip\n\t"// source: stack overflow.
                "get_eip:\n\t"
                "popl %%eax\n\t"
-               "addl $12, %%eax\n\t" // exactly 13 bytes of instructions are there between this and ret
+               "addl $12, %%eax\n\t" // exactly 122bytes of instructions are there between this and ret
                "movl %%eax,%1\n\t"
                "movl %2,%%esp\n\t"
                "movl %3,%%ebx\n\t"
@@ -344,12 +327,24 @@ void __lwt_dispatch(lwt_t next, lwt_t current)
                :"eax","ebx"
        );
        
-       /*
-        * By the time, we have reached here, we are already executing the next thread.
-        * So, if the older thread has died, then cleanup the stack and other stuff.
-        * XXX: Only in case of no thread pool. 
-        */
+}*/
 
+void __lwt_dispatch(lwt_t next, lwt_t current)
+{
+	// context switch from current to next
+       __asm__ __volatile__ (
+               "pusha\n\t"
+               "movl %%esp,%0\n\t"
+               "movl $1f,%1\n\t"
+               "movl %2,%%esp\n\t"
+               "movl %3,%%ebx\n\t"
+               "jmp *%%ebx\n\t"
+               "1: popa\n\t"
+               :"=m"(current->sp),"=m"(current->ip)
+               :"r"(next->sp),"r"(next->ip)
+               :"eax","ebx"
+       );
+       
 }
 
 void __lwt_trampoline()
@@ -369,9 +364,6 @@ void __lwt_trampoline()
 }
 
 void *__lwt_stack_get(void){
-	/* 
-         * allocate a new stack for a new lwt
-         */
         return (void*)((int)malloc(DEFAULT_STACK_SIZE) + DEFAULT_STACK_SIZE);
 }
 
