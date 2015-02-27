@@ -1,5 +1,5 @@
 OBJS= main1.o ring.o lwt.o
-CFLAGS=-g -m32 -I. -Wall -Wextra 
+CFLAGS=-O3 -m32 -I. -Wall -Wextra 
 #DEFINES=-DTHINK_TIME
 BIN=lwt
 CC=gcc

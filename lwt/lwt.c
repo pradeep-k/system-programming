@@ -12,7 +12,7 @@
 
 #define MAX_THD 64
 //#define DEFAULT_STACK_SIZE 1048576 //1MB
-#define DEFAULT_STACK_SIZE 2048576 //1MB
+#define DEFAULT_STACK_SIZE 548576 //1MB
 
 
 unsigned int thd_id = 0;
@@ -96,6 +96,7 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
                 thd_handle = (lwt_t)malloc(sizeof(tcb));
                 memset(thd_handle, 0, sizeof(*thd_handle));
                 thd_handle->sp = __lwt_stack_get();
+                thd_handle->bp = thd_handle->sp;
         }
         
 
@@ -103,7 +104,7 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
          * Other Initialization.
          */
         thd_handle->ip = __lwt_trampoline;
-        //thd_handle->bp = 0;
+        thd_handle->sp = thd_handle->bp;
         thd_handle->fn = fn;
         thd_handle->data = data;
         thd_handle->id = thd_id++; //XXX 
