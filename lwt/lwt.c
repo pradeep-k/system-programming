@@ -310,12 +310,12 @@ void lwt_chan_deref(lwt_chan_t c){
 	lwt_t current = lwt_current();
 	if(c->rcv_thd == current){
 		c->rcv_thd = 0;
-		printf("chan %d deref the rcv %d\n",c,current);
+		printf("chan %p deref the rcv %p\n",c,current);
 	}
 
 	if(remove_one_list(c->sender_thds, current)){
 		c->count_sender--;
-		printf("chan %d deref one sender %d\n",c,current);
+		printf("chan %p deref one sender %p\n",c,current);
 	}
 //	printf("channel %d , with %d senders, %d sendings\n",c,c->count_sender, c->count_sending);
 	if(c->rcv_thd != LWT_NULL){
@@ -350,7 +350,7 @@ void lwt_chan_deref(lwt_chan_t c){
 	//free
 	free_list(c->sender_thds);
 	free_list(c->sending_thds);
-	printf("free chan %d succ\n",c);
+	printf("free chan %p succ\n",c);
 	free(c);
 }
  
@@ -416,6 +416,8 @@ void *lwt_rcv(lwt_chan_t c){
 		return c->data;
 
 	}
+        
+        return NULL;
 }
 
 int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan){
@@ -480,6 +482,7 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c){
 		c->status = IDLE;
 		return c->data;
 	}
+        return LWT_NULL;
 }
 
 lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c){
