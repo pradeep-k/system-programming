@@ -5,6 +5,8 @@
 #define __LWT_H__
 
 #include "ring_buffer.h"
+#include "list.h"
+
 #define LWT_NULL NULL
 #define MAX_THD 64
 
@@ -96,6 +98,7 @@ struct lwt_channel {
 	struct lwt_tcb *rcv_thd;
 	unsigned int count_sender;
 	struct lwt_list_t* sender_thds;
+        struct list_head list;
 };
 
 typedef struct lwt_channel *lwt_chan_t;
@@ -123,10 +126,23 @@ int chan_buf_size(lwt_chan_t c);
 /*
  * Multi-wait
  */
+
+//typedef struct list_head    lwt_channel_group_t;
+//typedef struct list_head*   lwt_cgrp_t;
 /*
+ * all the channels associated with it
+ */
+typedef struct lwt_channel_group_t {
+        unsigned int event_count;
+        struct list_head list;
+} lwt_channel_group_t;
+
+typedef lwt_channel_group_t* lwt_cgrp_t ;
+
+
 lwt_cgrp_t lwt_cgrp();
 
-lwt_cgrp_free(lwt_cgrp_t);
+int lwt_cgrp_free(lwt_cgrp_t);
 
 int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
 
@@ -137,7 +153,7 @@ lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
 void lwt_chan_mark_set(lwt_chan_t, void *);
 
 void* lwt_chan_mark_get(lwt_chan_t);
-*/
+
 
 
 #endif

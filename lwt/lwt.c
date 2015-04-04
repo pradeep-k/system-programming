@@ -558,3 +558,74 @@ int chan_buf_size(lwt_chan_t c)
 {
         return c->queue->size;
 }
+
+/*
+ * Multi- wait
+ */
+
+static unsigned int get_cgrp_event_count(lwt_cgrp_t grp)
+{
+    return grp->event_count;
+}
+
+static void set_cgrp_event_count(lwt_cgrp_t grp)
+{
+        grp->event_count++;
+}
+
+lwt_cgrp_t lwt_cgrp()
+{
+        lwt_cgrp_t grp = calloc(1, sizeof(lwt_channel_group_t));
+        if (grp) {
+                return LWT_NULL;
+        }
+        INIT_LIST_HEAD(&grp->list);
+        return grp;
+}
+
+int lwt_cgrp_free(lwt_cgrp_t grp)
+{  
+        if (0 != get_cgrp_event_count(grp)) {
+                return -1; 
+        }
+
+        struct list_head * pos, *n;
+
+        list_for_each_safe(pos, n, &grp->list) {
+                list_del(pos);
+        }
+
+        free(grp);
+        return 0;
+}
+
+int lwt_cgrp_add(lwt_cgrp_t grp, lwt_chan_t chan)
+{
+        if (chan->list.prev == 0 &&
+           chan->list.next == 0) { 
+                list_add(&chan->list, &grp->list);
+                return 0;
+        }
+        return -1;
+}
+
+int lwt_cgrp_rem(lwt_cgrp_t grp, lwt_chan_t chan)
+{
+        list_del(&chan->list);
+        return 0;
+}
+
+lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t grp)
+{
+        return NULL;
+}
+
+void lwt_chan_mark_set(lwt_chan_t chan , void * data)
+{
+}
+
+void* lwt_chan_mark_get(lwt_chan_t chan)
+{
+        return NULL;
+}
+
