@@ -34,6 +34,21 @@ lwt_t current_thd;//global pointer to current executing thread
 //int blocked_num=0;
 int zombies_num=0;//global variable for lwt_info
 
+/*
+ * Internal functions.
+ */
+
+static void __lwt_schedule(void);
+
+static void __lwt_dispatch(lwt_t current, lwt_t next);
+
+static void __lwt_trampoline();
+
+static void *__lwt_stack_get(void);
+
+static void __lwt_stack_return(void *stk);
+
+
 /*initialize the lwt_tcb for main function*/
 
 void lwt_current_set()
@@ -212,7 +227,7 @@ void lwt_yield(lwt_t next)
  * Internal functions.
  */
 
-void __lwt_schedule(void)
+static void __lwt_schedule(void)
 {
 	// scheduling: switch to next thread in the queue.
 	lwt_t current = lwt_current();
@@ -241,7 +256,7 @@ void __lwt_schedule(void)
 }
 
 
-void __lwt_dispatch(lwt_t next, lwt_t current)
+static void __lwt_dispatch(lwt_t next, lwt_t current)
 {
 	// context switch from current to next
        __asm__ __volatile__ (
@@ -259,7 +274,7 @@ void __lwt_dispatch(lwt_t next, lwt_t current)
        
 }
 
-void __lwt_trampoline()
+static void __lwt_trampoline()
 {
         
         /* At a time, only one thread runs, Get the tcb data from the global variable, 
@@ -275,11 +290,11 @@ void __lwt_trampoline()
 
 }
 
-void *__lwt_stack_get(void){
+static void *__lwt_stack_get(void){
         return (void*)((int)malloc(DEFAULT_STACK_SIZE) + DEFAULT_STACK_SIZE);
 }
 
-void __lwt_stack_return(void *stk){
+static void __lwt_stack_return(void *stk){
 	/*
          *  recover memory for a lwt's stack for reuse
          */
@@ -292,7 +307,8 @@ void __lwt_stack_return(void *stk){
  */
 
 
-lwt_chan_t lwt_chan(int sz){
+lwt_chan_t lwt_chan(int sz)
+{
 	lwt_t current = lwt_current();
 	lwt_chan_t channel = (struct lwt_channel*)malloc(sizeof(struct lwt_channel));
 	memset(channel, 0, sizeof(*channel));
@@ -304,7 +320,8 @@ lwt_chan_t lwt_chan(int sz){
 	return channel;
 }
  
-void lwt_chan_deref(lwt_chan_t c){
+void lwt_chan_deref(lwt_chan_t c)
+{
 	//check
 
 	lwt_t current = lwt_current();
@@ -354,13 +371,15 @@ void lwt_chan_deref(lwt_chan_t c){
 	free(c);
 }
  
-int lwt_snd(lwt_chan_t c, void *data){
-	if(c == 0){
-		return 1;
-	}
-	lwt_t current = current_thd;
+int lwt_snd(lwt_chan_t c, void *data)
+{
+	assert(c != NULL);;
+        assert (data != NULL);
+	
+        lwt_t current = current_thd;
 	lwt_t rcv = c->rcv_thd;
-	if(c->status==IDLE){
+	
+        if (c->status == IDLE) {
 		push_list(c->sending_thds, current);
 		c->count_sending++;
 		pop(lwt_run);
@@ -369,30 +388,33 @@ int lwt_snd(lwt_chan_t c, void *data){
 		__lwt_schedule();
 	}
 
-	if(c->status==RCV){
-		remove_one(lwt_blocked, rcv);
-		rcv->status = READY;
-		push(lwt_run, rcv);
-	
-		(c->data) = data;
-		lwt_yield(rcv);
-	}
-	return 0;
+        // Reciever is in blocked state. Send the data and switch to reciever.
+	//if (c->status == RCV) {
+        remove_one(lwt_blocked, rcv);
+        rcv->status = READY;
+        push(lwt_run, rcv);
+
+        c->data = data;
+        lwt_yield(rcv);
+
+        return 0;
 }
  
-void *lwt_rcv(lwt_chan_t c){
-	if(c == 0 ){
-		return NULL;
-	}
+void *lwt_rcv(lwt_chan_t c)
+{
+	assert(c != NULL);;
+
 	lwt_t current = lwt_current();
-	if(c->rcv_thd != current){
-		return NULL;
-	}
-	if(c->count_sending!=0){
+	
+        assert (c->rcv_thd == current);
+
+        // Sender is blocked. Take first sender and switch to it,
+        // so that sender can send the data and then process it here.        
+        if (c->count_sending != 0) {
 		c->status = RCV;
 		pop(lwt_run);
 		current->status = WAIT;
-		push(lwt_blocked,current);
+		push(lwt_blocked, current);
 		
 		lwt_t sender = pop_list(c->sending_thds);
 		c->count_sending--;
@@ -404,23 +426,21 @@ void *lwt_rcv(lwt_chan_t c){
 		
 		c->status = IDLE;
 		return c->data;
-	}
-	if(c->count_sending == 0){
-		c->status = RCV;
-		pop(lwt_run);
-		current->status= WAIT;
-		push(lwt_blocked,current);
-		__lwt_schedule();
+	} 
 
-		c->status = IDLE;
-		return c->data;
+        //Just wait and schedule to other thread.
+        c->status = RCV;
+        pop(lwt_run);
+        current->status= WAIT;
+        push(lwt_blocked, current);
+        __lwt_schedule();
 
-	}
-        
-        return NULL;
+        c->status = IDLE;
+        return c->data;
 }
 
-int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan){
+int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan)
+{
 	if(c == 0){
 		return 1;
 	}
@@ -449,7 +469,8 @@ int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan){
 	return 0;
 }
  
-lwt_chan_t lwt_rcv_chan(lwt_chan_t c){
+lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
+{
 	if(c == 0 ){
 		return NULL;
 	}
@@ -485,7 +506,8 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c){
         return LWT_NULL;
 }
 
-lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c){
+lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c)
+{
         lwt_t thd_handle; 
 
         if (!is_empty(lwt_pool)) {

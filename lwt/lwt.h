@@ -73,19 +73,6 @@ int lwt_id(lwt_t thd_handle);
 
 int lwt_info(lwt_info_t t);
 
-/*
- * Internal functions.
- */
-
-void __lwt_schedule(void);
-
-void __lwt_dispatch(lwt_t current, lwt_t next);
-
-void __lwt_trampoline();
-
-void *__lwt_stack_get(void);
-
-void __lwt_stack_return(void *stk);
 
 /* 
  *  channel_______________________________________________________
@@ -127,6 +114,24 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
 lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c);
 
+/*
+ * Multi-wait
+ */
+/*
+lwt_cgrp_t lwt_cgrp();
+
+lwt_cgrp_free(lwt_cgrp_t);
+
+int lwt_cgrp_add(lwt_cgrp_t, lwt_chan_t);
+
+int lwt_cgrp_rem(lwt_cgrp_t, lwt_chan_t);
+
+lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t);
+
+void lwt_chan_mark_set(lwt_chan_t, void *);
+
+void* lwt_chan_mark_get(lwt_chan_t);
+*/
 
 
 #endif
