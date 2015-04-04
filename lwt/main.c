@@ -56,12 +56,13 @@ void test1()
 
 }
 
-
-//test 2: child to parent, send a channel
-void* child2(lwt_chan_t c)
+//test 4: child to parent, send a channel
+void* child4(lwt_chan_t c)
 {
 	int k = 12345;
+	printf("child2_1\n");
 	lwt_snd(c, (void*)&k);
+	printf("child2_2\n");
     
         lwt_chan_deref(c);
         printf("func child2 die\n");
@@ -69,12 +70,14 @@ void* child2(lwt_chan_t c)
         return NULL;
 }
 
-void* parent2(lwt_chan_t c)
+void* parent4(lwt_chan_t c)
 {
 	lwt_chan_t  chan = lwt_chan(0);
-	lwt_t        thd = lwt_create_chan(child2, chan);
+	lwt_t        thd = lwt_create_chan(child4, chan);
 
+	printf("parent2_1\n");
         lwt_snd_chan(c, chan);
+	printf("parent2_2\n");
 
         /* 
          * Rcv from main thread and from child2
@@ -88,6 +91,84 @@ void* parent2(lwt_chan_t c)
         printf("func parent2 join child2\n");
 
         lwt_join(thd);
+	printf("parent2_3\n");
+	lwt_chan_deref(chan);
+        lwt_chan_deref(c);
+
+	return NULL;
+}
+
+void test4()
+{
+	printf("====test 2====\n");
+        
+        lwt_chan_t chan_of_parent2 = 0;
+	lwt_chan_t chan = lwt_chan(0);
+	lwt_t       thd = lwt_create_chan(parent4, chan);
+	int           i = 200;
+
+        lwt_yield(LWT_NULL);
+
+        /*
+         * Let's rcv is a channel from parent2.
+         */
+	printf("test2_1\n");
+	chan_of_parent2 = lwt_rcv_chan(chan);
+	printf("test2_2\n");
+
+        /*
+         * Send something to parent 2.
+         */
+        lwt_snd(chan_of_parent2, &i);
+	printf("test2_3\n");
+
+	lwt_join(thd);
+	printf("test2_4\n");
+	lwt_chan_deref(chan);
+	
+        printf("run: %d\n",lwt_info(LWT_INFO_NTHD_RUNNABLE));
+	printf("zombie: %d\n",lwt_info(LWT_INFO_NTHD_ZOMBIES));
+	printf("block: %d\n",lwt_info(LWT_INFO_NTHD_BLOCKED));
+
+}
+
+//test 2: child to parent, send a channel
+void* child2(lwt_chan_t c)
+{
+	int k = 12345;
+	printf("child2_1\n");
+	lwt_snd(c, (void*)&k);
+	printf("child2_2\n");
+    
+        lwt_chan_deref(c);
+        printf("func child2 die\n");
+	
+        return NULL;
+}
+
+void* parent2(lwt_chan_t c)
+{
+	lwt_chan_t  chan = lwt_chan(0);
+	lwt_chan_t  chan2 = lwt_chan(0);
+	lwt_t        thd = lwt_create_chan(child2, chan);
+
+	printf("parent2_1\n");
+        lwt_snd_chan(c, chan2);
+	printf("parent2_2\n");
+
+        /* 
+         * Rcv from main thread and from child2
+         */
+	int i = *(int*)lwt_rcv(chan2);
+	printf("recieved int %d\n", i);
+
+        i = *(int*) lwt_rcv(chan);	
+	printf("recieved int %d\n", i);
+
+        printf("func parent2 join child2\n");
+
+        lwt_join(thd);
+	printf("parent2_3\n");
 	lwt_chan_deref(chan);
         lwt_chan_deref(c);
 
@@ -108,15 +189,18 @@ void test2()
         /*
          * Let's rcv is a channel from parent2.
          */
+	printf("test2_1\n");
 	chan_of_parent2 = lwt_rcv_chan(chan);
+	printf("test2_2\n");
 
         /*
          * Send something to parent 2.
          */
         lwt_snd(chan_of_parent2, &i);
+	printf("test2_3\n");
 
-        printf("func test2 join parent2\n");
 	lwt_join(thd);
+	printf("test2_4\n");
 	lwt_chan_deref(chan);
 	
         printf("run: %d\n",lwt_info(LWT_INFO_NTHD_RUNNABLE));
@@ -135,23 +219,25 @@ void* child3_1(lwt_chan_t c)
          * Send the channel to parent which will send it to its sibling.
          */
         lwt_snd_chan(c, chan);
+	printf("send chan3_1 to parent\n");
 
         /*
          * Rcv the channel for its sibling through parent
          */
         chan_to_sibling = lwt_rcv_chan(chan);
+	printf("rcv chan3_2 from parent\n");
 
         /*
          * send data to its sibling.
          */
         lwt_snd(chan_to_sibling, &k);
+	printf("send to sibling3_2\n");
 
         /* 
          * Rcv from child2.
          */
 	int i = *(int*)lwt_rcv(chan);
         assert(i == 302);
-
 	printf("recieved int %d\n", i);
 
         i = *(int*) lwt_rcv(chan);	
@@ -175,23 +261,25 @@ void* child3_2(lwt_chan_t c)
          * Send the channel to parent which will send it to its sibling.
          */
         lwt_snd_chan(c, chan);
+	printf("send chan3_2 to parent\n");
 
         /*
          * Rcv the channel for its sibling through parent
          */
         chan_to_sibling = lwt_rcv_chan(chan);
+	printf("rcv chan3_1 from parent\n");
 
         /*
          * send data to its sibling.
          */
         lwt_snd(chan_to_sibling, &k);
+	printf("send to sibling3_1\n");
 
         /* 
          * Rcv from child2.
          */
 	int i = *(int*)lwt_rcv(chan);
         assert(i == 301);
-
 	printf("recieved int %d\n", i);
 
         i = *(int*) lwt_rcv(chan);	
@@ -225,18 +313,28 @@ void test3()
          * Let's rcv is a channel from parent2.
          */
 	lwt_chan_t chan_to_child1 = lwt_rcv_chan(chan);
+	printf("recv chan_to_child1\n");
         lwt_chan_t chan_to_child2 = lwt_rcv_chan(chan);
+	printf("recv chan_to_child2\n");
 
-
+        /*
+         * Send the channel to respective siblings.
+         */
+        lwt_snd(chan_to_child1, chan_to_child2);
+	printf("send  chan to child1\n");
+        lwt_snd(chan_to_child2, chan_to_child1);
+	printf("send chan to child2\n");
         /*
          * Send something to children as spring break gift.
          * 300 USD is good enough for kids :)
          */
         lwt_snd(chan_to_child1, &i);
+	printf("send to child1\n");
         lwt_snd(chan_to_child2, &i);
+	printf("send to child2\n");
 
-        printf("func test2 join parent2\n");
 	lwt_join(thd1);
+        printf("func test2 join parent2\n");
         lwt_join(thd2);
 	lwt_chan_deref(chan);
 	lwt_chan_deref(chan_to_child1);
@@ -250,6 +348,7 @@ int main()
         
         test1(); 
 	test2();
-        test3();
+	test4();
+        //test3();
         return 0;
 }

@@ -149,7 +149,8 @@ void* lwt_join(lwt_t thd_handle)
 	// wait for a thread
 	lwt_t current = lwt_current();
 //	printf("thd %d join thd %d\n",current->id,thd_handle->id);
-	if(thd_handle->status!=COMPLETE && thd_handle->status!=FREE){
+	if(thd_handle->status !=COMPLETE && 
+           thd_handle->status !=FREE) {
 //		printf("thd %d blocked by thd %d\n",current->id,thd_handle->id);
 		current->status = WAIT;
 		thd_handle->blocked[thd_handle->num_blocked] = current;
@@ -183,8 +184,9 @@ void lwt_die(void *ret)
 	pop(lwt_run);
 	push(lwt_zombie, current);
         current->return_value = ret;
-	int num=current->num_blocked;
-	int i=0;
+	int num = current->num_blocked;
+	int i = 0;
+
 	for(i=0;i<num;i++){
         	lwt_t blocked = current->blocked[i];
         
@@ -205,7 +207,8 @@ void lwt_die(void *ret)
 void lwt_yield(lwt_t next)
 {
 	lwt_t current = lwt_current();
-	if(next==LWT_NULL) {
+
+	if(next == LWT_NULL) {
 		__lwt_schedule();
                 return;                
 	}
@@ -245,7 +248,7 @@ static void __lwt_schedule(void)
 
 	
 	lwt_t next = lwt_run->head;
-	if (next==current){
+	if (next == current){
 		return;
 	}
 	lwt_current_set();
@@ -317,6 +320,11 @@ lwt_chan_t lwt_chan(int sz)
 	channel->sender_thds  = list_create();
 //	printf("create channel %d %d\n", channel,channel->count_sending);
 	channel->rcv_thd = current;
+        if (0 == sz) {
+                channel->queue = chan_buf_create(1); 
+        } else {
+                channel->queue = chan_buf_create(sz); 
+        }
 	return channel;
 }
  
@@ -379,23 +387,33 @@ int lwt_snd(lwt_chan_t c, void *data)
         lwt_t current = current_thd;
 	lwt_t rcv = c->rcv_thd;
 	
-        if (c->status == IDLE) {
+        //block the sender if queue is full.
+        if (is_chan_buf_full(c->queue)) {
 		push_list(c->sending_thds, current);
 		c->count_sending++;
 		pop(lwt_run);
 		current->status= WAIT;
-		push(lwt_blocked,current);
+		push(lwt_blocked, current);
 		__lwt_schedule();
+
 	}
-
-        // Reciever is in blocked state. Send the data and switch to reciever.
-	//if (c->status == RCV) {
-        remove_one(lwt_blocked, rcv);
-        rcv->status = READY;
-        push(lwt_run, rcv);
-
-        c->data = data;
-        lwt_yield(rcv);
+       
+        chan_buf_push(c->queue, data);
+        push_list(c->sending_thds, current);
+        c->count_sending++;
+        
+        // If the reciever is blocked right now waiting for the data
+        if (RCV == c->status) { // Again get blocked.      
+                //remove_one(lwt_blocked, rcv);
+                //push(lwt_run, rcv);
+                lwt_yield(rcv);
+        
+        } else if (1 == chan_buf_size(c)) {//If it is synchronization case.
+                pop(lwt_run);
+                current->status= WAIT;
+                push(lwt_blocked, current);
+                __lwt_schedule();
+        }
 
         return 0;
 }
@@ -411,42 +429,40 @@ void *lwt_rcv(lwt_chan_t c)
         // Sender is blocked. Take first sender and switch to it,
         // so that sender can send the data and then process it here.        
         if (c->count_sending != 0) {
-		c->status = RCV;
-		pop(lwt_run);
-		current->status = WAIT;
-		push(lwt_blocked, current);
-		
-		lwt_t sender = pop_list(c->sending_thds);
-		c->count_sending--;
-		remove_one(lwt_blocked, sender);
+                lwt_t sender = pop_list(c->sending_thds);
+                c->count_sending--;
+                remove_one(lwt_blocked, sender);
 		sender->status = READY;
 		push(lwt_run, sender);
-		
-		lwt_yield(sender);
-		
-		c->status = IDLE;
-		return c->data;
-	} 
+                if (is_chan_buf_empty(c->queue)) {
+                        c->status = RCV;
+                        lwt_yield(sender);
+                }
+	} else { 
 
-        //Just wait and schedule to other thread.
-        c->status = RCV;
-        pop(lwt_run);
-        current->status= WAIT;
-        push(lwt_blocked, current);
-        __lwt_schedule();
+                //Just wait and schedule to other thread.
+                lwt_t sender = pop_list(c->sending_thds);
+                c->count_sending--;
+                c->status = RCV;
+                pop(lwt_run);
+                current->status = WAIT;
+                push(lwt_blocked, current);
+                __lwt_schedule();
+        }
 
         c->status = IDLE;
-        return c->data;
+        return chan_buf_pop(c->queue);
 }
 
 int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan)
 {
-	if(c == 0){
-		return 1;
-	}
-	lwt_t current = current_thd;
+        return lwt_snd(c, chan);
+/*	assert(c != NULL);;
+	
+        lwt_t current = current_thd;
 	lwt_t rcv = c->rcv_thd;
-	if(c->status==IDLE){
+
+        if(c->status==IDLE){
 		push_list(c->sending_thds, current);
 		c->count_sending++;
 		pop(lwt_run);
@@ -459,7 +475,7 @@ int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan)
 		remove_one(lwt_blocked, rcv);
 		rcv->status = READY;
 		push(lwt_run, rcv);
-		c->data = chan;
+		c->data[0] = chan;
 		if(chan!=0){
 			push_list(chan->sender_thds, rcv);
 			chan->count_sender++;
@@ -467,11 +483,13 @@ int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan)
 		lwt_yield(rcv);
 	}
 	return 0;
+*/
 }
  
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
 {
-	if(c == 0 ){
+        return (lwt_chan_t) lwt_rcv(c);
+        /*if(c == 0 ){
 		return NULL;
 	}
 	lwt_t current = lwt_current();
@@ -491,7 +509,7 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
 		lwt_yield(sender);
 		
 		c->status = IDLE;
-		return c->data;
+		return c->data[0];
 	}
 	if(c->count_sending == 0){
 		c->status = RCV;
@@ -501,9 +519,10 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
 		__lwt_schedule();
 
 		c->status = IDLE;
-		return c->data;
+		return c->data[0];
 	}
         return LWT_NULL;
+        */
 }
 
 lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c)
@@ -535,3 +554,7 @@ lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c)
 }
 
 
+int chan_buf_size(lwt_chan_t c) 
+{
+        return c->queue->size;
+}

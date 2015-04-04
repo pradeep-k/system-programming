@@ -15,38 +15,39 @@
  * Use push() and pop() to insert and remove the elements from it.
  */
 
-int ring_buffer_create(ring_buffer_t **prb, unsigned int size)
+chan_buf_t* chan_buf_create(unsigned int size)
 {
-        *prb = (ring_buffer_t*)malloc(sizeof(ring_buffer_t));
-        (*prb)->buf = (lwt_t*)calloc(size, sizeof(tcb));
-        (*prb)->head = 0;
-        (*prb)->tail = 0;
-        (*prb)->count = 0; 
-        (*prb)->size =  size; 
+        chan_buf_t* prb = (chan_buf_t*)malloc(sizeof (chan_buf_t));
+        prb->buf = (void**)calloc(size, sizeof(void*));
+        prb->head = 0;
+        prb->tail = 0;
+        prb->count = 0; 
+        prb->size =  size;
 
-        return 0;
+        return prb;
 }
 
-void cleanup(ring_buffer_t* rb) 
+void chan_buf_cleanup(chan_buf_t* rb) 
 {
         rb->head = 0;
         rb->tail = 0;
         rb->count = 0; 
+        free(rb->buf);
         free(rb);
 }
 
-int push(ring_buffer_t *ring_buffer, lwt_t fd) 
+int chan_buf_push(chan_buf_t *ring_buffer, void* data) 
 {
         if (ring_buffer->count < ring_buffer->size) {
                 ring_buffer->head = (ring_buffer->head + 1) % ring_buffer->size;
-                ring_buffer->buf[ring_buffer->head] = fd;
+                ring_buffer->buf[ring_buffer->head] = data;
                 ring_buffer->count += 1; 
                 return 0;
         }
         return -1;
 }
 
-lwt_t pop(ring_buffer_t *ring_buffer) 
+void* chan_buf_pop(chan_buf_t *ring_buffer) 
 {
         if (0 == ring_buffer->count ) {
                 return 0;
@@ -57,12 +58,12 @@ lwt_t pop(ring_buffer_t *ring_buffer)
         return ring_buffer->buf[ring_buffer->tail];
 }
 
-int is_empty(ring_buffer_t *ring_buffer) 
+int is_chan_buf_empty(chan_buf_t *ring_buffer) 
 {
         return (0 == ring_buffer->count);
 }
 
-int is_full(ring_buffer_t *ring_buffer) 
+int is_chan_buf_full(chan_buf_t *ring_buffer) 
 {
         return (ring_buffer->size == ring_buffer->count);
 }

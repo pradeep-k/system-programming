@@ -4,7 +4,7 @@
 #ifndef __LWT_H__
 #define __LWT_H__
 
-//#include "ring.h"
+#include "ring_buffer.h"
 #define LWT_NULL NULL
 #define MAX_THD 64
 
@@ -25,7 +25,7 @@ struct lwt_tcb{		//thread control block;
 	void* bp;
         void* return_value;
         lwt_fn_t fn;   
-        void* data;
+        void*  data;
         /*
          * we may keep a lwt_t array or pool to store all lwt with id
          * as its index, and a current queue to store ids for all currently 
@@ -87,7 +87,11 @@ struct lwt_channel {
 	unsigned int count_sending;
 	struct lwt_list_t* sending_thds;
 	chan_status_t status;
-	void *data;
+
+        /*
+         * Size of recieve buffer.
+         */
+	chan_buf_t *queue;
 
 	struct lwt_tcb *rcv_thd;
 	unsigned int count_sender;
@@ -113,6 +117,8 @@ int lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
 lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c);
+
+int chan_buf_size(lwt_chan_t c);
 
 /*
  * Multi-wait
