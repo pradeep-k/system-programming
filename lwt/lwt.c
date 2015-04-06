@@ -515,7 +515,7 @@ int lwt_snd(lwt_chan_t c, void *data)
         lwt_t current = current_thd;
 	
         //block the sender if queue is full.
-        if (is_chan_buf_full(c->queue)) {
+        while (is_chan_buf_full(c->queue)) {
 		push_list(c->sending_thds, current);
 		c->count_sending++;
                 if ( RCV == c->status) {
@@ -606,14 +606,16 @@ void *lwt_rcv(lwt_chan_t c)
         }
         /*else {*/
 
-	if ( c->count_sending > 0) {
-            sender = pop_list(c->sending_thds);
-            c->count_sending--;
-            remove_one(lwt_blocked, sender);
-            sender->status = READY;
-            push(lwt_run, sender);
+	if ( c->count_sending > 0 ) {
+            // if ((1 == chan_buf_size(c)) || 
+            //     (!is_chan_buf_full(c->queue))) {
+                    sender = pop_list(c->sending_thds);
+                    c->count_sending--;
+                    remove_one(lwt_blocked, sender);
+                    sender->status = READY;
+                    push(lwt_run, sender);
+            //}
         }
-       // }
         
         c->status = IDLE;
         return chan_buf_pop(c->queue);
@@ -790,7 +792,7 @@ static void set_cgrp_event_count(lwt_cgrp_t grp)
 lwt_cgrp_t lwt_cgrp()
 {
         lwt_cgrp_t grp = calloc(1, sizeof(struct lwt_channel_group_t));
-        if (grp) {
+        if (NULL == grp) {
                 return LWT_NULL;
         }
         INIT_LIST_HEAD(&grp->list);
@@ -842,6 +844,7 @@ lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t grp)
         grp->status = IDLE;
         lwt_chan_t chan = chan_buf_pop(&grp->active_list);
         chan->in_grp_active_list = 0;
+        return chan;
 }
 
 void lwt_chan_mark_set(lwt_chan_t chan , void * data)
