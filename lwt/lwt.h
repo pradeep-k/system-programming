@@ -80,6 +80,9 @@ int lwt_info(lwt_info_t t);
  *  channel_______________________________________________________
  */
 
+struct lwt_channel_group_t;
+
+
 typedef enum{
 	IDLE,
 	RCV
@@ -98,6 +101,13 @@ struct lwt_channel {
 	struct lwt_tcb *rcv_thd;
 	unsigned int count_sender;
 	struct lwt_list_t* sender_thds;
+        
+        // The owner group. One channel can be part of one owner only.
+        struct lwt_channel_group_t* parent_grp;
+
+        unsigned int in_grp_active_list;
+
+        //this list makes the group member as a doubly linked-list.
         struct list_head list;
 };
 
@@ -124,20 +134,30 @@ lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c);
 int chan_buf_size(lwt_chan_t c);
 
 /*
- * Multi-wait
+ * --------Multi-wait---------------------------
  */
 
-//typedef struct list_head    lwt_channel_group_t;
-//typedef struct list_head*   lwt_cgrp_t;
 /*
  * all the channels associated with it
  */
-typedef struct lwt_channel_group_t {
-        unsigned int event_count;
-        struct list_head list;
-} lwt_channel_group_t;
+typedef struct tag_chan_buf_t chan_queue_t;
 
-typedef lwt_channel_group_t* lwt_cgrp_t ;
+struct lwt_channel_group_t {
+        
+        // Channels with data in its buffer.
+        chan_queue_t  active_list;
+        
+        //Thread waiting on this group.
+	struct lwt_tcb *rcv_thd;
+	
+        //group status
+        chan_status_t status;
+
+        // All the channels of this group.
+        struct list_head list;
+};
+
+typedef struct lwt_channel_group_t* lwt_cgrp_t ;
 
 
 lwt_cgrp_t lwt_cgrp();
