@@ -27,6 +27,26 @@ chan_buf_t* chan_buf_create(unsigned int size)
         return prb;
 }
 
+void chan_buf_init(chan_buf_t* prb ,unsigned int size)
+{
+        //chan_buf_t* prb = (chan_buf_t*)malloc(sizeof (chan_buf_t));
+        prb->buf = (void**)calloc(size, sizeof(void*));
+        prb->head = 0;
+        prb->tail = 0;
+        prb->count = 0; 
+        prb->size =  size;
+
+        return;
+}
+
+void chan_buf_clean(chan_buf_t* rb)
+{
+        rb->head = 0;
+        rb->tail = 0;
+        rb->count = 0; 
+        free(rb->buf);
+}
+
 void chan_buf_cleanup(chan_buf_t* rb) 
 {
         rb->head = 0;

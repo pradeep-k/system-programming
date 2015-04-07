@@ -17,5 +17,7 @@ int chan_buf_push(chan_buf_t* ring_buffer, void* data);
 void* chan_buf_pop(chan_buf_t* ring_buffer);
 int is_chan_buf_empty(chan_buf_t* ring_buffer);
 int is_chan_buf_full(chan_buf_t* ring_buffer);
+void chan_buf_clean(chan_buf_t* rb);
+void chan_buf_init(chan_buf_t* prb ,unsigned int size);
 
 #endif

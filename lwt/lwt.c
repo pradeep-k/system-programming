@@ -258,7 +258,7 @@ static void __lwt_schedule(void)
 	
 	lwt_t next = lwt_run->head;
 	if (next == current){
-	        assert(0);
+	        //assert(0);
                 return;
 	}
 	next->status = RUN;
@@ -528,7 +528,6 @@ int lwt_snd(lwt_chan_t c, void *data)
         chan_buf_push(c->queue, data);
 
         if ( c->parent_grp) {
-                chan_buf_push(&c->parent_grp->active_list, c);
                 if (0 == c->in_grp_active_list) {
                         chan_buf_push(&c->parent_grp->active_list, c);
                         c->in_grp_active_list = 1;
@@ -538,10 +537,18 @@ int lwt_snd(lwt_chan_t c, void *data)
         if ( 1 == chan_buf_size(c)) {//synchronization case
                 push_list(c->sending_thds, current);
 	        c->count_sending++;
-                if ( RCV == c->status) {
-                        __lwt_block(c->rcv_thd);
-                } else { 
-                        __lwt_block(LWT_NULL);
+                if ( c->parent_grp ) {
+                        if ( RCV == c->parent_grp->status) {
+                            __lwt_block(c->parent_grp->rcv_thd);
+                        } else { 
+                            __lwt_block(LWT_NULL);
+                        }
+                } else {
+                        if ( RCV == c->status) {
+                            __lwt_block(c->rcv_thd);
+                        } else { 
+                            __lwt_block(LWT_NULL);
+                        }
                 }
         
         } else if (/*( RCV == c->status) && */( WAIT == c->rcv_thd->status)) {
@@ -796,6 +803,8 @@ lwt_cgrp_t lwt_cgrp()
                 return LWT_NULL;
         }
         INIT_LIST_HEAD(&grp->list);
+	grp->rcv_thd = lwt_current();
+        chan_buf_init(&grp->active_list, 256);        
         return grp;
 }
 
@@ -810,7 +819,7 @@ int lwt_cgrp_free(lwt_cgrp_t grp)
         list_for_each_safe(pos, n, &grp->list) {
                 list_del(pos);
         }
-
+        chan_buf_clean(&grp->active_list);
         free(grp);
         return 0;
 }
@@ -828,6 +837,10 @@ int lwt_cgrp_add(lwt_cgrp_t grp, lwt_chan_t chan)
 
 int lwt_cgrp_rem(lwt_cgrp_t grp, lwt_chan_t chan)
 {
+        //if the channel is still has some event.
+        if (!is_chan_buf_empty(chan->queue)) {
+                return -1;
+        }
         list_del(&chan->list);
         chan->parent_grp = LWT_NULL;
         return 0;
