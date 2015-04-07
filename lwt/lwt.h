@@ -89,24 +89,42 @@ typedef enum{
 }chan_status_t;
 
 struct lwt_channel {
+
+        /*
+         * Threads that are blocked.
+         * For sync case, all threads will be added in this list
+         * For async, only threads that are blocked will be added in this list.
+         */
 	unsigned int count_sending;
 	struct lwt_list_t* sending_thds;
+
+        // Status of the channel. 
+        // IDLE means nobody is expecting any data.
+        // RCV means that the thread is blocked waiting for some data.
 	chan_status_t status;
 
         /*
          * Size of recieve buffer.
          */
 	chan_buf_t *queue;
-
+        
+        //Owner of the channel as only one channel is allowed to own/rcv.
 	struct lwt_tcb *rcv_thd;
+        
+        //Rcver thread can put any data here for any purpose.
+        void* mark;
+
+        //All the sender thds that are allow to send to this channel.
 	unsigned int count_sender;
 	struct lwt_list_t* sender_thds;
         
         // The owner group. One channel can be part of one owner only.
         struct lwt_channel_group_t* parent_grp;
 
+        //If the channel is already in onwer group's active list.
+        //This means that event is still pending for this channel for the group.
         unsigned int in_grp_active_list;
-
+        
         //this list makes the group member as a doubly linked-list.
         struct list_head list;
 };

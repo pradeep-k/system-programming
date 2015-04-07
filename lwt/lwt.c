@@ -403,18 +403,6 @@ static void __lwt_block(lwt_t next)
                 return;
         }
 	
-        /*if (next->status == READY) {
-		current->status = READY;
-		next->status = RUN;
-		remove_one(lwt_run, next);
-		ring_move(lwt_run);
-		push(lwt_run,next);
-		ring_back(lwt_run);
-		lwt_current_set();
-//		printf("dispatch from %d to %d\n",current->id,next->id);
-                __lwt_dispatch(next, current);
-                return;
-        } else*/
         if ( next->status == WAIT) {
                 next->status = READY;
                 remove_one(lwt_blocked, next);
@@ -436,77 +424,7 @@ static void __lwt_block(lwt_t next)
         }
 }
 
-/*int lwt_snd(lwt_chan_t c, void *data)
-{
-	assert(c != NULL);;
-        assert (data != NULL);
-	
-        lwt_t current = current_thd;
-	
-        //block the sender if queue is full.
-        if (is_chan_buf_full(c->queue)) {
-		push_list(c->sending_thds, current);
-		c->count_sending++;
-                if ( RCV == c->status) {
-                        lwt_yield(c->rcv_thd);
-                } else {//if ( 1 == chan_buf_size(c)) { //synchronization case
-                        __lwt_block();
-                }
-	} else {
-                push_list(c->sending_thds, current);
-                c->count_sending++;
-        }
-       
-        chan_buf_push(c->queue, data);
-
-        if ( c->parent_grp) {
-                chan_buf_push(&c->parent_grp->active_list, c);
-                if (0 == c->in_grp_active_list) {
-                        chan_buf_push(&c->parent_grp->active_list, c);
-                        c->in_grp_active_list = 1;
-                }
-        }
-        
-        if ( 1 == chan_buf_size(c)) {//synchronization case
-                if ( RCV == c->status) {
-                        lwt_yield(c->rcv_thd);
-                } else { 
-                        __lwt_block();
-                }
-        
-        }*/
-        /*if ( is_chan_buf_full(c->queue)) {//both case
-                //If a thread was waiting to recieve the data ublock it.
-                if ( RCV == c->status) {
-                        lwt_yield(c->rcv_thd);
-                } else if ( 1 == chan_buf_size(c)) { //synchronization case
-                        __lwt_block();
-                }
-        }*/
-
-        //return 0;
-        // If the reciever is blocked right now waiting for the data
-        // As we have already sent the data switch to reciever now to
-        //
-        // process it.
-        /*if (RCV == c->status) { //reciever is waiting on this channel. 
-	        lwt_t rcv = c->rcv_thd;
-                lwt_yield(rcv);
-        
-        } else if ( c->parent_grp) {
-                if (RCV == c->parent_grp->status) { // reciever is waiting on this group.
-	                lwt_t rcv = c->parent_grp->rcv_thd;
-                        lwt_yield(rcv);
-                }
-
-        } else if (1 == chan_buf_size(c)) {//If it is synchronization case.
-                __lwt_block();
-        }
-
-        return 0;
-        */
-//}
- 
+  
 int lwt_snd(lwt_chan_t c, void *data)
 {
 	assert(c != NULL);;
@@ -556,36 +474,7 @@ int lwt_snd(lwt_chan_t c, void *data)
                 c->rcv_thd->status = READY;
                 push(lwt_run, c->rcv_thd);
         }
-        /*if ( is_chan_buf_full(c->queue)) {//both case
-                //If a thread was waiting to recieve the data ublock it.
-                if ( RCV == c->status) {
-                        lwt_yield(c->rcv_thd);
-                } else if ( 1 == chan_buf_size(c)) { //synchronization case
-                        __lwt_block();
-                }
-        }*/
-
         return 0;
-        // If the reciever is blocked right now waiting for the data
-        // As we have already sent the data switch to reciever now to
-        //
-        // process it.
-        /*if (RCV == c->status) { //reciever is waiting on this channel. 
-	        lwt_t rcv = c->rcv_thd;
-                lwt_yield(rcv);
-        
-        } else if ( c->parent_grp) {
-                if (RCV == c->parent_grp->status) { // reciever is waiting on this group.
-	                lwt_t rcv = c->parent_grp->rcv_thd;
-                        lwt_yield(rcv);
-                }
-
-        } else if (1 == chan_buf_size(c)) {//If it is synchronization case.
-                __lwt_block();
-        }
-
-        return 0;
-        */
 }
 
 void *lwt_rcv(lwt_chan_t c)
@@ -603,140 +492,25 @@ void *lwt_rcv(lwt_chan_t c)
                 if (0 != c->count_sending) {
                         sender = pop_list(c->sending_thds);
                         c->count_sending--;
-                        //remove_one(lwt_blocked, sender);
-                        //sender->status = READY;
-                        //push(lwt_run, sender);
                         __lwt_block(sender);
                 } else {
                         __lwt_block(LWT_NULL);
                 }
         }
-        /*else {*/
 
 	if ( c->count_sending > 0 ) {
-            // if ((1 == chan_buf_size(c)) || 
-            //     (!is_chan_buf_full(c->queue))) {
                     sender = pop_list(c->sending_thds);
                     c->count_sending--;
                     remove_one(lwt_blocked, sender);
                     sender->status = READY;
                     push(lwt_run, sender);
-            //}
         }
         
         c->status = IDLE;
         return chan_buf_pop(c->queue);
 
-        /*if (RCV == c->status) {
-                c->status = IDLE;
-                return chan_buf_pop(c->queue);
-        } 
-        */
-
-        // Sender is blocked. Take first sender and switch to it,
-        // so that sender can send the data and then process it here.        
-        
-        /*if (0 == c->count_sending) {//No senders are blocked
-                //Just wait and schedule to other thread.
-                c->status = RCV;
-                __lwt_block();
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-        }
-
-        //
-        if (c->count_sending != 0) {
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-                remove_one(lwt_blocked, sender);
-		sender->status = READY;
-		push(lwt_run, sender);
-                if (is_chan_buf_empty(c->queue)) {
-                        c->status = RCV;
-                        lwt_yield(sender);
-                }
-	} else {//underflow case. 
-
-                //Just wait and schedule to other thread.
-                c->status = RCV;
-                __lwt_block();
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-        }
-
-        c->status = IDLE;
-        return chan_buf_pop(c->queue);*/
 }
-/*void *lwt_rcv(lwt_chan_t c)
-{
-	assert(c != NULL);;
-        
-        lwt_t sender = LWT_NULL;
-	lwt_t current = lwt_current();
-	
-        assert (c->rcv_thd == current);
-*/
-        /*if (is_chan_buf_empty(c->queue)) {
-                c->status = RCV;
-                //If as sender is waiting
-                if (0 != c->count_sending) {
-                        c->count_sending--;
-                        remove_one(lwt_blocked, sender);
-                        sender->status = READY;
-                        push(lwt_run, sender);
-                        sender = pop_list(c->sending_thds);
-                        lwt_yield(sender);
-                }
-                __lwt_block();
-        } else {
 
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-        }
-        
-        c->status = IDLE;
-        return chan_buf_pop(c->queue);
-
-        if (RCV == c->status) {
-                c->status = IDLE;
-                return chan_buf_pop(c->queue);
-        } 
-        */
-
-        // Sender is blocked. Take first sender and switch to it,
-        // so that sender can send the data and then process it here.        
-   /*     
-        if (0 == c->count_sending) {//underflow case
-                //Just wait and schedule to other thread.
-                c->status = RCV;
-                __lwt_block();
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-        }
-
-        //
-        if (c->count_sending != 0) {
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-                remove_one(lwt_blocked, sender);
-		sender->status = READY;
-		push(lwt_run, sender);
-                if (is_chan_buf_empty(c->queue)) {
-                        c->status = RCV;
-                        lwt_yield(sender);
-                }
-	} else {//underflow case. 
-
-                //Just wait and schedule to other thread.
-                c->status = RCV;
-                __lwt_block();
-                sender = pop_list(c->sending_thds);
-                c->count_sending--;
-        }
-
-        c->status = IDLE;
-        return chan_buf_pop(c->queue);
-}*/
 
 int lwt_snd_chan(lwt_chan_t c, lwt_chan_t chan)
 {
@@ -783,19 +557,8 @@ int chan_buf_size(lwt_chan_t c)
 }
 
 /*
- * Multi- wait
+ * Multi- wait: Grp API
  */
-/*
-static unsigned int get_cgrp_event_count(lwt_cgrp_t grp)
-{
-    return grp->event_count;
-}
-
-static void set_cgrp_event_count(lwt_cgrp_t grp)
-{
-        grp->event_count++;
-}
-*/
 lwt_cgrp_t lwt_cgrp()
 {
         lwt_cgrp_t grp = calloc(1, sizeof(struct lwt_channel_group_t));
@@ -862,10 +625,14 @@ lwt_chan_t lwt_cgrp_wait(lwt_cgrp_t grp)
 
 void lwt_chan_mark_set(lwt_chan_t chan , void * data)
 {
+        assert(chan->rcv_thd == lwt_current());
+
+        chan->mark = data;
 }
 
 void* lwt_chan_mark_get(lwt_chan_t chan)
 {
-        return NULL;
+        assert(chan->rcv_thd == lwt_current());
+        return chan->mark;
 }
 
