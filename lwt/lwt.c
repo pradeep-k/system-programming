@@ -15,6 +15,8 @@
 #define DEFAULT_STACK_SIZE 548576 //1MB
 
 
+const long LWT_NOJOIN = 0x1;
+
 unsigned int thd_id = 0;
 int thd_pool_size = 50;
 
@@ -83,7 +85,7 @@ void lwt_init()
         lwt_main_init(); 
 }
 
-lwt_t lwt_create(lwt_fn_t fn, void *data)
+lwt_t lwt_create(lwt_fn_t fn, void *data, lwt_flags_t flags)
 {
         lwt_t thd_handle; 
 
@@ -107,7 +109,8 @@ lwt_t lwt_create(lwt_fn_t fn, void *data)
         thd_handle->sp = thd_handle->bp;
         thd_handle->fn = fn;
         thd_handle->data = data;
-       	thd_handle->num_blocked = 0; 
+       	thd_handle->num_blocked = 0;
+        thd_handle->flags = flags; 
         /*
          * Mark the status as READY..
          */
@@ -148,6 +151,13 @@ void* lwt_join(lwt_t thd_handle)
 {
 	// wait for a thread
 	lwt_t current = lwt_current();
+        
+        //If the thd_handle has LWT_NOJOIN set.
+        if (thd_handle->flags & LWT_NOJOIN ) {
+                assert(0);
+                return NULL;
+        }
+
 //	printf("thd %d join thd %d\n",current->id,thd_handle->id);
 	if(thd_handle->status !=COMPLETE && 
            thd_handle->status !=FREE) {
@@ -180,22 +190,32 @@ void* lwt_join(lwt_t thd_handle)
 void lwt_die(void *ret)
 {
         lwt_t current = lwt_current();
-	current->status = COMPLETE;
-	pop(lwt_run);
-	push(lwt_zombie, current);
-        current->return_value = ret;
-	int num = current->num_blocked;
-	int i = 0;
 
-	for(i=0;i<num;i++){
-        	lwt_t blocked = current->blocked[i];
-        
-		if (blocked!=LWT_NULL) {
-			blocked->status = READY;
-			remove_one(lwt_blocked, blocked);
-			push(lwt_run, blocked);
-		}
-	}
+        if (current->flags &LWT_NOJOIN) {
+                current->status = FREE;
+                pop(lwt_run);
+                push(lwt_pool, current);
+                
+                //XXX: could be memory leak 
+                current->return_value = ret;
+        } else {
+                current->status = COMPLETE;
+                pop(lwt_run);
+                push(lwt_zombie, current);
+                current->return_value = ret;
+                int num = current->num_blocked;
+                int i = 0;
+
+                for(i=0;i<num;i++){
+                        lwt_t blocked = current->blocked[i];
+                
+                        if (blocked!=LWT_NULL) {
+                                blocked->status = READY;
+                                remove_one(lwt_blocked, blocked);
+                                push(lwt_run, blocked);
+                        }
+                }
+        }
 //	printf("thd %d die\n",current->id);	
         __lwt_schedule();
 
@@ -522,7 +542,7 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
         return (lwt_chan_t) lwt_rcv(c);
 }
 
-lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c)
+lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c, lwt_flags_t flags)
 {
         lwt_t thd_handle; 
 
@@ -540,6 +560,7 @@ lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c)
         thd_handle->ip = __lwt_trampoline;
         thd_handle->sp = thd_handle->bp;
         thd_handle->fn = fn;
+        thd_handle->flags = flags; 
         thd_handle->data = (void*)c;
 	push_list(c->sender_thds, thd_handle);
 	c->count_sender++;

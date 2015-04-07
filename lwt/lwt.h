@@ -10,7 +10,12 @@
 #define LWT_NULL NULL
 #define MAX_THD 64
 
+
+extern const long LWT_NOJOIN;
+
 typedef void* (*lwt_fn_t) (void *);
+
+typedef long lwt_flags_t;
 
 typedef enum{
 	RUN=1,
@@ -35,7 +40,8 @@ struct lwt_tcb{		//thread control block;
          */
 	int id;
         lwt_status_t status;
-        
+        lwt_flags_t flags; 
+
         /*
          * This thread called join. 
          * Unblock it after we are dead. 
@@ -61,7 +67,7 @@ typedef enum{
 
 void lwt_init();
 
-lwt_t lwt_create(lwt_fn_t fn, void* data);
+lwt_t lwt_create(lwt_fn_t fn, void* data, lwt_flags_t flags);
 
 void* lwt_join(lwt_t thd_handle);
 
@@ -147,7 +153,7 @@ int lwt_snd_chan(lwt_chan_t c, lwt_chan_t sending);
 
 lwt_chan_t lwt_rcv_chan(lwt_chan_t c);
 
-lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c);
+lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c, lwt_flags_t flags);
 
 int chan_buf_size(lwt_chan_t c);
 
