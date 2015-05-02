@@ -394,7 +394,7 @@ test_grpwait(int chsz, int grpsz)
 int
 main(void)
 {
-        lwt_init(ITER);
+        ktcb_init(ITER);
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);

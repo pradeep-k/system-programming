@@ -14,23 +14,34 @@
 //#define DEFAULT_STACK_SIZE 1048576 //1MB
 #define DEFAULT_STACK_SIZE 548576 //1MB
 
+//data structure for pthread;
+pthread_key_t key=-2;
+struct ktcb{
+	ring_buffer_t *lwt_pool;
+	ring_buffer_t *lwt_zombie;
+	ring_buffer_t *lwt_blocked;
+	ring_buffer_t *lwt_run;
+	lwt_t current_thd;
+};
+typedef struct ktcb* ktcb_t;
+//
 
 const long LWT_NOJOIN = 0x1;
 
 unsigned int thd_id = 0;
 int thd_pool_size = 50;
 
-ring_buffer_t   *lwt_pool = NULL;
-ring_buffer_t *lwt_zombie = NULL;
-ring_buffer_t *lwt_blocked = NULL;
-ring_buffer_t *lwt_run = NULL;
+//ring_buffer_t   *lwt_pool = NULL;
+//ring_buffer_t *lwt_zombie = NULL;
+//ring_buffer_t *lwt_blocked = NULL;
+//ring_buffer_t *lwt_run = NULL;
 
 
 lwt_t   Queue[MAX_THD];// a queue to store living thread's pointer
 int     queue_length=0;
 
 
-lwt_t current_thd;//global pointer to current executing thread
+//lwt_t current_thd;global pointer to current executing thread
 
 //int runnable_num=1;
 //int blocked_num=0;
@@ -55,16 +66,20 @@ static void __lwt_stack_return(void *stk);
 
 void lwt_current_set()
 {
-        current_thd = lwt_run->head;
+	ktcb_t kthd = pthread_getspecific(key);
+        kthd->current_thd = kthd->lwt_run->head;
 }
 
+
+//this should be in each kthd create
 void lwt_main_init()
 {
 
+	ktcb_t kthd = pthread_getspecific(key);
         lwt_t main_tcb = (lwt_t)malloc(sizeof(tcb));
         memset(main_tcb, 0, sizeof(*main_tcb));
         main_tcb->id=thd_id++;
-	push(lwt_run, main_tcb);
+	push(kthd->lwt_run, main_tcb);
         lwt_current_set();
         main_tcb->status = RUN;
 }
@@ -75,22 +90,35 @@ void lwt_main_init()
 
 void lwt_init()
 {
-        if (NULL != lwt_run) {
-            return;
+	ktcb_t kthd = pthread_getspecific(key);
+
+        if (NULL != kthd->lwt_run) {
+		return;
         }
-        lwt_pool=ring_buffer_create();
-        lwt_zombie=ring_buffer_create();
-        lwt_run=ring_buffer_create();
-        lwt_blocked=ring_buffer_create();
+        kthd->lwt_pool=ring_buffer_create();
+        kthd->lwt_zombie=ring_buffer_create();
+        kthd->lwt_run=ring_buffer_create();
+        kthd->lwt_blocked=ring_buffer_create();
         lwt_main_init(); 
+}
+
+void ktcb_init()
+{
+	//init the pthread of main function
+	pthread_key_create(&key, NULL);
+	ktcb_t kthd = (ktcb_t)malloc(sizeof(struct ktcb));
+	memset(kthd, 0, sizeof(*kthd));
+	pthread_setspecific(key,kthd);
+	lwt_init();
 }
 
 lwt_t lwt_create(lwt_fn_t fn, void *data, lwt_flags_t flags)
 {
+	ktcb_t kthd = pthread_getspecific(key);
         lwt_t thd_handle; 
 
-        if (!is_empty(lwt_pool)) {
-                thd_handle = pop(lwt_pool);
+        if (!is_empty(kthd->lwt_pool)) {
+                thd_handle = pop(kthd->lwt_pool);
         } 
 	else {
 
@@ -115,15 +143,16 @@ lwt_t lwt_create(lwt_fn_t fn, void *data, lwt_flags_t flags)
          * Mark the status as READY..
          */
         thd_handle->status = READY;
-        push(lwt_run, thd_handle);
-//	printf("create thd %d in thd %d\n",thd_handle->id, current_thd->id);	
+        push(kthd->lwt_run, thd_handle);
+//	printf("create thd %d in thd %d\n",thd_handle->id, lwt_current()->id);	
         return thd_handle;
 }
 
 lwt_t lwt_current()
 {
 	// return a pointer to current thread
-	return current_thd;
+	ktcb_t kthd = pthread_getspecific(key);
+	return kthd->current_thd;
 }
 
 int lwt_id(lwt_t thd)
@@ -134,14 +163,16 @@ int lwt_id(lwt_t thd)
 
 int lwt_info(lwt_info_t t)
 {
+	
+	ktcb_t kthd = pthread_getspecific(key);
 	// debuggingn helper
 	switch(t){
 		case LWT_INFO_NTHD_RUNNABLE:
-			return ring_size(lwt_run);
+			return ring_size(kthd->lwt_run);
 		case LWT_INFO_NTHD_BLOCKED:
-			return ring_size(lwt_blocked);
+			return ring_size(kthd->lwt_blocked);
 		case LWT_INFO_NTHD_ZOMBIES:
-			return ring_size(lwt_zombie);
+			return ring_size(kthd->lwt_zombie);
 		default:
 			return 0;
 	}
@@ -149,6 +180,7 @@ int lwt_info(lwt_info_t t)
 
 void* lwt_join(lwt_t thd_handle)
 {
+	ktcb_t kthd = pthread_getspecific(key);
 	// wait for a thread
 	lwt_t current = lwt_current();
         
@@ -165,18 +197,18 @@ void* lwt_join(lwt_t thd_handle)
 		current->status = WAIT;
 		thd_handle->blocked[thd_handle->num_blocked] = current;
 		thd_handle->num_blocked++;
-		pop(lwt_run);
-		push(lwt_blocked,current);
+		pop(kthd->lwt_run);
+		push(kthd->lwt_blocked,current);
 		__lwt_schedule();
 	}
 	if (thd_handle->status ==  COMPLETE) {
-//		printf("back to join\n");
-		remove_one(lwt_zombie, thd_handle);
+//		printf("back to join thd %d\n",current->id);
+		remove_one(kthd->lwt_zombie, thd_handle);
 		thd_handle->status = FREE;
-		push(lwt_pool, thd_handle);
+		push(kthd->lwt_pool, thd_handle);
 		current->status = RUN;
-		if (ring_size(lwt_pool) >= thd_pool_size) {
-			lwt_t free_node  = pop(lwt_pool);
+		if (ring_size(kthd->lwt_pool) >= thd_pool_size) {
+			lwt_t free_node  = pop(kthd->lwt_pool);
 			__lwt_stack_return(free_node->sp);
 			free(free_node);
 		}
@@ -189,19 +221,20 @@ void* lwt_join(lwt_t thd_handle)
 // kill current thread
 void lwt_die(void *ret)
 {
+	ktcb_t kthd = pthread_getspecific(key);
         lwt_t current = lwt_current();
 
         if (current->flags &LWT_NOJOIN) {
                 current->status = FREE;
-                pop(lwt_run);
-                push(lwt_pool, current);
+                pop(kthd->lwt_run);
+                push(kthd->lwt_pool, current);
                 
                 //XXX: could be memory leak 
                 current->return_value = ret;
         } else {
                 current->status = COMPLETE;
-                pop(lwt_run);
-                push(lwt_zombie, current);
+                pop(kthd->lwt_run);
+                push(kthd->lwt_zombie, current);
                 current->return_value = ret;
                 int num = current->num_blocked;
                 int i = 0;
@@ -211,8 +244,9 @@ void lwt_die(void *ret)
                 
                         if (blocked!=LWT_NULL) {
                                 blocked->status = READY;
-                                remove_one(lwt_blocked, blocked);
-                                push(lwt_run, blocked);
+                                remove_one(kthd->lwt_blocked, blocked);
+                                push(kthd->lwt_run, blocked);
+//		printf("thd %d unblocked by thd %d\n",blocked->id,current->id);
                         }
                 }
         }
@@ -226,6 +260,7 @@ void lwt_die(void *ret)
  */
 void lwt_yield(lwt_t next)
 {
+	ktcb_t kthd = pthread_getspecific(key);
 	lwt_t current = lwt_current();
 
 	if(next == LWT_NULL) {
@@ -235,10 +270,10 @@ void lwt_yield(lwt_t next)
 	else if (next != LWT_NULL && next->status == READY) {
 		current->status = READY;
 		next->status = RUN;
-		remove_one(lwt_run, next);
-		ring_move(lwt_run);
-		push(lwt_run,next);
-		ring_back(lwt_run);
+		remove_one(kthd->lwt_run, next);
+		ring_move(kthd->lwt_run);
+		push(kthd->lwt_run, next);
+		ring_back(kthd->lwt_run);
 		lwt_current_set();
 //		printf("dispatch from %d to %d\n",current->id,next->id);
                 __lwt_dispatch(next, current);
@@ -246,10 +281,10 @@ void lwt_yield(lwt_t next)
         } else if ( next->status == WAIT) {
 		        current->status = READY;
 			next->status = READY;
-			remove_one(lwt_blocked, next);
-		        ring_move(lwt_run);
-			push(lwt_run, next);
-		        ring_back(lwt_run);
+			remove_one(kthd->lwt_blocked, next);
+		        ring_move(kthd->lwt_run);
+			push(kthd->lwt_run, next);
+		        ring_back(kthd->lwt_run);
 		        lwt_current_set();
                         __lwt_dispatch(next, current);
             
@@ -262,11 +297,12 @@ void lwt_yield(lwt_t next)
 
 static void __lwt_schedule(void)
 {
+	ktcb_t kthd = pthread_getspecific(key);
 	// scheduling: switch to next thread in the queue.
 	lwt_t current = lwt_current();
 //	printf("schedule from %d\n",current->id);
 	if(current->status == RUN){
-		ring_move(lwt_run);
+		ring_move(kthd->lwt_run);
 	        lwt_current_set();
 		current->status = READY;
 	} else if (current->status == COMPLETE){
@@ -276,7 +312,7 @@ static void __lwt_schedule(void)
         }
 
 	
-	lwt_t next = lwt_run->head;
+	lwt_t next = kthd->lwt_run->head;
 	if (next == current){
 	        //assert(0);
                 return;
@@ -412,11 +448,12 @@ void lwt_chan_deref(lwt_chan_t c)
 static void __lwt_block(lwt_t next)
 {
         
+	ktcb_t kthd = pthread_getspecific(key);
 	lwt_t current = lwt_current();
 
-        pop(lwt_run);
+        pop(kthd->lwt_run);
         current->status = WAIT;
-        push(lwt_blocked, current);
+        push(kthd->lwt_blocked, current);
 
         if (next == LWT_NULL) {
                 __lwt_schedule();
@@ -425,19 +462,19 @@ static void __lwt_block(lwt_t next)
 	
         if ( next->status == WAIT) {
                 next->status = READY;
-                remove_one(lwt_blocked, next);
-                ring_move(lwt_run);
-                push(lwt_run, next);
-                ring_back(lwt_run);
+                remove_one(kthd->lwt_blocked, next);
+                ring_move(kthd->lwt_run);
+                push(kthd->lwt_run, next);
+                ring_back(kthd->lwt_run);
                 lwt_current_set();
                 __lwt_dispatch(next, current);
             
         } else if (next->status == READY) {
 		next->status = RUN;
-		remove_one(lwt_run, next);
-		ring_move(lwt_run);
-		push(lwt_run,next);
-		ring_back(lwt_run);
+		remove_one(kthd->lwt_run, next);
+		ring_move(kthd->lwt_run);
+		push(kthd->lwt_run, next);
+		ring_back(kthd->lwt_run);
 		lwt_current_set();
                 __lwt_dispatch(next, current);
                  
@@ -447,10 +484,11 @@ static void __lwt_block(lwt_t next)
   
 int lwt_snd(lwt_chan_t c, void *data)
 {
+	ktcb_t kthd = pthread_getspecific(key);
 	assert(c != NULL);;
         assert (data != NULL);
 	
-        lwt_t current = current_thd;
+        lwt_t current = lwt_current();
 	
         //block the sender if queue is full.
         while (is_chan_buf_full(c->queue)) {
@@ -490,15 +528,16 @@ int lwt_snd(lwt_chan_t c, void *data)
                 }
         
         } else if (/*( RCV == c->status) && */( WAIT == c->rcv_thd->status)) {
-                remove_one(lwt_blocked, c->rcv_thd);
+                remove_one(kthd->lwt_blocked, c->rcv_thd);
                 c->rcv_thd->status = READY;
-                push(lwt_run, c->rcv_thd);
+                push(kthd->lwt_run, c->rcv_thd);
         }
         return 0;
 }
 
 void *lwt_rcv(lwt_chan_t c)
 {
+	ktcb_t kthd = pthread_getspecific(key);
 	assert(c != NULL);;
         
         lwt_t sender = LWT_NULL;
@@ -521,9 +560,9 @@ void *lwt_rcv(lwt_chan_t c)
 	if ( c->count_sending > 0 ) {
                     sender = pop_list(c->sending_thds);
                     c->count_sending--;
-                    remove_one(lwt_blocked, sender);
+                    remove_one(kthd->lwt_blocked, sender);
                     sender->status = READY;
-                    push(lwt_run, sender);
+                    push(kthd->lwt_run, sender);
         }
         
         c->status = IDLE;
@@ -544,10 +583,11 @@ lwt_chan_t lwt_rcv_chan(lwt_chan_t c)
 
 lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c, lwt_flags_t flags)
 {
+	ktcb_t kthd = pthread_getspecific(key);
         lwt_t thd_handle; 
 
-        if (!is_empty(lwt_pool)) {
-                thd_handle = pop(lwt_pool);
+        if (!is_empty(kthd->lwt_pool)) {
+                thd_handle = pop(kthd->lwt_pool);
         } 
 	else {
 
@@ -566,7 +606,7 @@ lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c, lwt_flags_t flags)
 	c->count_sender++;
        	thd_handle->num_blocked = 0; 
         thd_handle->status = READY;
-        push(lwt_run, thd_handle);
+        push(kthd->lwt_run, thd_handle);
 //	printf("create thd %d in thd %d\n",thd_handle->id, current_thd->id);	
         return thd_handle;
 }
@@ -657,3 +697,13 @@ void* lwt_chan_mark_get(lwt_chan_t chan)
         return chan->mark;
 }
 
+/*void* __pthd_init(lwt_fn_t fn){
+	ktcb_init();
+	return (*fn)(NULL);
+
+int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c){
+	pthread_t pthd; 
+	pthread_create(&pthd, NULL, __pthd_init, fn);
+	pthread_join(pthd,NULL);
+
+}*/

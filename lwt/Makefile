@@ -1,5 +1,5 @@
 OBJS= main3.o ring.o lwt.o ring_buffer.o
-CFLAGS=-O3 -m32 -I. -Wall -Wextra 
+CFLAGS=-g -m32 -I. -Wall -Wextra -pthread 
 #DEFINES=-DTHINK_TIME
 BIN=lwt
 CC=gcc
