@@ -697,13 +697,25 @@ void* lwt_chan_mark_get(lwt_chan_t chan)
         return chan->mark;
 }
 
-/*void* __pthd_init(lwt_fn_t fn){
-	ktcb_init();
-	return (*fn)(NULL);
+void* __pthd_init(void * arg) {
+        kthd_arg_t* kthd_arg = (kthd_arg_t*)(arg);
+        ktcb_init();
+	return kthd_arg->fn(kthd_arg->c);
 
-int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c){
+}
+int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c)
+{
 	pthread_t pthd; 
-	pthread_create(&pthd, NULL, __pthd_init, fn);
-	pthread_join(pthd,NULL);
+        kthd_arg_t* kthd_arg = (kthd_arg_t*) malloc(sizeof(kthd_arg_t));
 
-}*/
+        kthd_arg->fn = fn;
+        kthd_arg->c = c;
+	if ( 0!= pthread_create(&pthd, NULL, __pthd_init, (void*)kthd_arg)) {
+                assert(0);
+        }
+        if ( 0 != pthread_detach(&pthd)) {
+                assert(0);
+        }
+        return 0;
+
+}

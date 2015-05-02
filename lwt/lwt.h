@@ -61,6 +61,8 @@ typedef enum{
 	LWT_INFO_NTHD_ZOMBIES
 }lwt_info_t;
 
+
+
 /*
  * lightweight thread APIs.
  */
@@ -139,6 +141,11 @@ typedef struct lwt_channel *lwt_chan_t;
 
 typedef void* (*lwt_chan_fn_t)(lwt_chan_t);
 
+typedef struct __kthd_arg {
+        lwt_fn_t fn;
+        lwt_chan_t c;
+} kthd_arg_t;
+
 
 
 lwt_chan_t lwt_chan(int sz);
@@ -199,5 +206,8 @@ void lwt_chan_mark_set(lwt_chan_t, void *);
 void* lwt_chan_mark_get(lwt_chan_t);
 
 
+/*
+ * kthd libraray
+ */
 
 #endif
