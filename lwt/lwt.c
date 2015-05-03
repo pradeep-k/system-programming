@@ -703,6 +703,8 @@ void* __pthd_init(void * arg) {
 	return kthd_arg->fn(kthd_arg->c);
 
 }
+
+//Each thread should have its own wait-free ring buffer
 int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c)
 {
 	pthread_t pthd; 
@@ -713,7 +715,7 @@ int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c)
 	if ( 0!= pthread_create(&pthd, NULL, __pthd_init, (void*)kthd_arg)) {
                 assert(0);
         }
-        if ( 0 != pthread_detach(&pthd)) {
+        if ( 0 != pthread_detach(pthd)) {
                 assert(0);
         }
         return 0;

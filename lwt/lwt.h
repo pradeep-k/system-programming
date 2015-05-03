@@ -67,7 +67,7 @@ typedef enum{
  * lightweight thread APIs.
  */
 
-void lwt_init();
+void ktcb_init();
 
 lwt_t lwt_create(lwt_fn_t fn, void* data, lwt_flags_t flags);
 

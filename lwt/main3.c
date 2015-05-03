@@ -394,7 +394,7 @@ test_grpwait(int chsz, int grpsz)
 int
 main(void)
 {
-        ktcb_init(ITER);
+        ktcb_init();
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);
@@ -403,7 +403,7 @@ main(void)
         printf("test_perf_async_steam done\n");
 	//test_crt_join_sched();
 	test_multisend(0);
-	//test_multisend(ITER/10 < 100 ? ITER/10 : 100);
+	test_multisend(ITER/10 < 100 ? ITER/10 : 100);
 	test_grpwait(0, 3);
 	test_grpwait(3, 3);
 
