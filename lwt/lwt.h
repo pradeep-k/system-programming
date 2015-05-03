@@ -4,8 +4,12 @@
 #ifndef __LWT_H__
 #define __LWT_H__
 
+
+#include <pthread.h>
+
 #include "ring_buffer.h"
 #include "list.h"
+#include "waitfree_rb.h"
 
 #define LWT_NULL NULL
 #define MAX_THD 64
@@ -67,7 +71,6 @@ typedef enum{
  * lightweight thread APIs.
  */
 
-void ktcb_init();
 
 lwt_t lwt_create(lwt_fn_t fn, void* data, lwt_flags_t flags);
 
@@ -209,5 +212,25 @@ void* lwt_chan_mark_get(lwt_chan_t);
 /*
  * kthd libraray
  */
+
+
+struct ringqueue_t;
+
+struct ktcb{
+	struct ringqueue_t *lwt_pool;
+	struct ringqueue_t *lwt_zombie;
+	struct ringqueue_t *lwt_blocked;
+	struct ringqueue_t *lwt_run;
+	lwt_t current_thd;
+
+        //used for inter-kthd communication
+        waitfree_rb_t *thd_rb;
+        pthread_mutex_t thd_rb_lock;
+        pthread_cond_t  thd_rb_cond;
+        
+};
+typedef struct ktcb* ktcb_t;
+
+void lwt_init();
 
 #endif

@@ -7,24 +7,22 @@
 #include <pthread.h>
 #include <string.h>
 #include <assert.h>
-
+#include <errno.h>
 #include "ring.h"
 
 #define MAX_THD 64
 //#define DEFAULT_STACK_SIZE 1048576 //1MB
 #define DEFAULT_STACK_SIZE 548576 //1MB
 
+/*
+ *  * Taken from man pages example.
+ *   */
+#define handle_error_en(en, msg) \
+            do { errno = en; perror(msg); exit(EXIT_FAILURE); } while (0)
+
+
 //data structure for pthread;
 pthread_key_t key=-2;
-struct ktcb{
-	ring_buffer_t *lwt_pool;
-	ring_buffer_t *lwt_zombie;
-	ring_buffer_t *lwt_blocked;
-	ring_buffer_t *lwt_run;
-	lwt_t current_thd;
-};
-typedef struct ktcb* ktcb_t;
-//
 
 const long LWT_NOJOIN = 0x1;
 
@@ -70,46 +68,73 @@ void lwt_current_set()
         kthd->current_thd = kthd->lwt_run->head;
 }
 
+/*
+ * If all lwts in this kthread are blocked because all of them were 
+ * waiting for a love msg from some remote lwt and I (idle lwt as in ideal) 
+ * of each kthread doesn't find any love msg in inter-thread buffer
+ * then I will sleep. When some remote lwt send a love msg,
+ * they will wake me using conditional variable.
+ * XXX: With this idle thread, some scheduler logic could be simplified like
+ * in case of empty run-queue
+*/
 
-//this should be in each kthd create
-void lwt_main_init()
+void* idle_lwt(void* arg)
 {
+        return NULL;
+}
 
-	ktcb_t kthd = pthread_getspecific(key);
+
+/*
+ * APIs
+ */
+
+
+void lwt_init()
+{
+        int error_code = 0;
+	//init the pthread of main function
+	pthread_key_create(&key, NULL);
+	
+        ktcb_t kthd = (ktcb_t)malloc(sizeof(struct ktcb));
+	memset(kthd, 0, sizeof(*kthd));
+        pthread_setspecific(key,kthd);
+        
+        //How good it would be if we can make a global lwt pool 
+        //instead of local to each kthread.
+        kthd->lwt_pool      = ring_buffer_create();
+
+        kthd->lwt_zombie    = ring_buffer_create();
+        kthd->lwt_run       = ring_buffer_create();
+        kthd->lwt_blocked   = ring_buffer_create();
+        
+        //lwt tcb for kthread.
         lwt_t main_tcb = (lwt_t)malloc(sizeof(tcb));
         memset(main_tcb, 0, sizeof(*main_tcb));
         main_tcb->id=thd_id++;
 	push(kthd->lwt_run, main_tcb);
         lwt_current_set();
         main_tcb->status = RUN;
-}
 
-/*
- * APIs
- */
-
-void lwt_init()
-{
-	ktcb_t kthd = pthread_getspecific(key);
-
-        if (NULL != kthd->lwt_run) {
-		return;
+        //We also need to allocate a wait-free ring buffer 
+        //to each kthread.
+        kthd->thd_rb        = waitfree_rb_create(256);
+        
+        if (0 != (error_code = pthread_mutex_init(&kthd->thd_rb_lock, 0))) {
+                handle_error_en(error_code, "pthread_mutex_init");
         }
-        kthd->lwt_pool=ring_buffer_create();
-        kthd->lwt_zombie=ring_buffer_create();
-        kthd->lwt_run=ring_buffer_create();
-        kthd->lwt_blocked=ring_buffer_create();
-        lwt_main_init(); 
+        
+        if( 0 != (error_code = pthread_cond_init(&kthd->thd_rb_cond, 0))) {
+                handle_error_en(error_code, "pthread_cond_init");
+        }
+
+        //We also need to create a "idle" lwt thread in each kthd.
+        lwt_create(idle_lwt, NULL, LWT_NOJOIN);
 }
 
-void ktcb_init()
+void lwt_clean()
 {
-	//init the pthread of main function
-	pthread_key_create(&key, NULL);
-	ktcb_t kthd = (ktcb_t)malloc(sizeof(struct ktcb));
-	memset(kthd, 0, sizeof(*kthd));
-	pthread_setspecific(key,kthd);
-	lwt_init();
+        //XXX
+        return;
 }
 
 lwt_t lwt_create(lwt_fn_t fn, void *data, lwt_flags_t flags)
@@ -484,10 +509,15 @@ static void __lwt_block(lwt_t next)
   
 int lwt_snd(lwt_chan_t c, void *data)
 {
-	ktcb_t kthd = pthread_getspecific(key);
 	assert(c != NULL);;
         assert (data != NULL);
-	
+       
+        /*
+         * XXX: We need to check if the channel is local or not
+         * If not, we need to push data in inter-kthread-buffer
+         */        
+
+	ktcb_t kthd = pthread_getspecific(key);
         lwt_t current = lwt_current();
 	
         //block the sender if queue is full.
@@ -699,9 +729,15 @@ void* lwt_chan_mark_get(lwt_chan_t chan)
 
 void* __pthd_init(void * arg) {
         kthd_arg_t* kthd_arg = (kthd_arg_t*)(arg);
-        ktcb_init();
-	return kthd_arg->fn(kthd_arg->c);
+        
+        //The lwt associated with kthd should also be non-joinable. 
+        lwt_init();
+        
+        void* ret_value = kthd_arg->fn(kthd_arg->c);
 
+	//Clean the resouces associated with kthd.
+        //Nothing to do with return value as it non-joinable thread
+        lwt_clean();
 }
 
 //Each thread should have its own wait-free ring buffer
@@ -715,6 +751,14 @@ int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c)
 	if ( 0!= pthread_create(&pthd, NULL, __pthd_init, (void*)kthd_arg)) {
                 assert(0);
         }
+
+        /*
+         * Detach the pthread. It should clean itself. 
+         * Remember we didn't had to worry this for main thread, 
+         * as it was cleaned as process die, though not a good thing as
+         *  we need to clean pthread resouces on our own now.
+         *  The cleaning should be kthd's trampoline. 
+         */
         if ( 0 != pthread_detach(pthd)) {
                 assert(0);
         }

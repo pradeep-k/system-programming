@@ -394,7 +394,7 @@ test_grpwait(int chsz, int grpsz)
 int
 main(void)
 {
-        ktcb_init();
+        lwt_init();
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);

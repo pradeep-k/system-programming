@@ -1,4 +1,4 @@
-OBJS= main3.o ring.o lwt.o ring_buffer.o
+OBJS= main3.o ring.o lwt.o ring_buffer.o waitfree_rb.o
 CFLAGS=-g -m32 -I. -Wall -Wextra -pthread 
 #DEFINES=-DTHINK_TIME
 BIN=lwt
