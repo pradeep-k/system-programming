@@ -23,7 +23,14 @@
 
 
 //data structure for pthread;
-pthread_key_t key=-2;
+static pthread_key_t key;
+static pthread_once_t key_once = PTHREAD_ONCE_INIT;
+
+static void 
+make_key() 
+{
+        (void) pthread_key_create(&key, NULL);
+}
 
 const long LWT_NOJOIN = 0x1;
 
@@ -84,8 +91,9 @@ void lwt_init()
 {
         int error_code = 0;
 	//init the pthread of main function
-	pthread_key_create(&key, NULL);
-	
+	//pthread_key_create(&key, NULL);
+	(void) pthread_once(&key_once, make_key);
+
         ktcb_t kthd = (ktcb_t)malloc(sizeof(struct ktcb));
 	memset(kthd, 0, sizeof(*kthd));
         pthread_setspecific(key,kthd);
@@ -110,7 +118,7 @@ void lwt_init()
 
         //We also need to allocate a wait-free ring buffer 
         //to each kthread.
-        kthd->thd_rb        = waitfree_rb_create(256);
+        kthd->thd_rb = waitfree_rb_create();
         
         if (0 != (error_code = pthread_mutex_init(&kthd->thd_rb_lock, 0))) {
                 handle_error_en(error_code, "pthread_mutex_init");
@@ -741,6 +749,7 @@ void* __pthd_init(void * arg) {
 	//Clean the resouces associated with kthd.
         //Nothing to do with return value as it non-joinable thread
         lwt_clean();
+        return NULL;
 }
 
 //Each thread should have its own wait-free ring buffer
@@ -776,7 +785,7 @@ int handle_msg(inter_kthd_msg_t msg)
 {
         assert(msg->type == MSG);
 
-        ktcb_t kthd;
+        ktcb_t kthd = pthread_getspecific(key);
         
         // If channel is synchronous, then send a reply to remote sender
         // to unblock the remote lwt.
@@ -873,7 +882,7 @@ static int
 __lwt_snd_interkthd(lwt_chan_t c, void* data)
 {
         ktcb_t kthd = chan_owner_kthd(c);
-        inter_kthd_msg_t msg = (inter_kthd_msg_t*)malloc(sizeof(struct inter_kthd_msg)); 
+        inter_kthd_msg_t msg = (inter_kthd_msg_t)malloc(sizeof(struct inter_kthd_msg)); 
         msg->sender = lwt_current();
         msg->rcv_chan = c;
         msg->type = MSG;

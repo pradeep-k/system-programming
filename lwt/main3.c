@@ -394,10 +394,29 @@ test_grpwait(int chsz, int grpsz)
 	return;
 }
 
+void* 
+kthd_start(lwt_chan_t c)
+{
+        printf("hello kthd\n");
+        while (1);
+
+}
+
+void 
+test_kthd()
+{
+        lwt_chan_t c = lwt_chan(0);
+        int ret = lwt_kthd_create(kthd_start, c);
+        return;
+}
+
+
 int
 main(void)
 {
         lwt_init();
+        test_kthd();
+
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);
