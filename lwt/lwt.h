@@ -233,6 +233,7 @@ struct ktcb{
         //used for inter-kthd communication
         waitfree_rb_t *thd_rb;
         int is_sleeping;
+        int kthd_id;
         pthread_mutex_t thd_rb_lock;
         pthread_cond_t  thd_rb_cond;
 

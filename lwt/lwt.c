@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "ring.h"
 
 #define MAX_THD 64
@@ -35,6 +36,7 @@ make_key()
 const long LWT_NOJOIN = 0x1;
 
 unsigned int thd_id = 0;
+int kthd_id = 0;
 int thd_pool_size = 50;
 
 //ring_buffer_t   *lwt_pool = NULL;
@@ -104,6 +106,7 @@ void lwt_init()
         kthd->lwt_zombie    = ring_buffer_create();
         kthd->lwt_run       = ring_buffer_create();
         kthd->lwt_blocked   = ring_buffer_create();
+        kthd->kthd_id = kthd_id++;
         
         //lwt tcb for kthread.
         lwt_t main_tcb = (lwt_t)malloc(sizeof(tcb));
@@ -134,7 +137,7 @@ void lwt_init()
         lwt_create(__idle_lwt, NULL, LWT_NOJOIN);
 }
 
-void lwt_clean()
+void lwt_kthd_clean()
 {
         //XXX
         return;
@@ -310,7 +313,7 @@ void lwt_yield(lwt_t next)
                 return;
         } else if ( next->status == WAIT) {
 		        current->status = READY;
-			next->status = READY;
+			next->status = RUN;
 			remove_one(kthd->lwt_blocked, next);
 		        ring_move(kthd->lwt_run);
 			push(kthd->lwt_run, next);
@@ -603,7 +606,12 @@ void *lwt_rcv(lwt_chan_t c)
 	if ( c->count_sending > 0 ) {
                     sender = pop_list(c->sending_thds);
                     c->count_sending--;
-                    __lwt_unblock(sender);
+                    if (1 == chan_buf_size(c)) {
+                        //__lwt_unblock(sender);
+                         lwt_yield(sender);
+                    } else {
+                        __lwt_unblock(sender);
+                    }
         }
         
         c->status = IDLE;
@@ -748,7 +756,7 @@ void* __pthd_init(void * arg) {
 
 	//Clean the resouces associated with kthd.
         //Nothing to do with return value as it non-joinable thread
-        lwt_clean();
+        lwt_kthd_clean();
         return NULL;
 }
 
@@ -851,10 +859,11 @@ static void* __idle_lwt(void* arg)
                                 pthread_cond_wait(&kthd->thd_rb_cond, &kthd->thd_rb_lock);
                                 pthread_mutex_unlock(&kthd->thd_rb_lock);
                                 kthd->is_sleeping = 0;
+                                usleep(10);
                         } else {
                             lwt_yield(LWT_NULL);
-                            continue;
                         }
+                        continue;
                 }
                 //inter kthd rb has some data.
                 inter_kthd_msg_t msg = waitfree_rb_pop(kthd->thd_rb);

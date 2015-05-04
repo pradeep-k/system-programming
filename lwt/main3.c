@@ -6,8 +6,8 @@
 
 #define rdtscll(val) __asm__ __volatile__("rdtsc" : "=A" (val))
 
-//#define ITER 10000
-#define ITER 4 
+#define ITER 10000
+//#define ITER 4 
 
 /* 
  * My output on an Intel Core i5-2520M CPU @ 2.50GHz:
@@ -186,12 +186,19 @@ fn_chan(lwt_chan_t to)
 	int i;
 	
 	from = lwt_chan(0);
+        //printf("sending channel\n");
 	lwt_snd_chan(to, from);
+        //printf("sent channel\n");
 	//XXX
         //assert(from->count_sending);
 	for (i = 0 ; i < ITER ; i++) {
-		lwt_snd(to, (void*)1);
+		//printf("sending 1\n");
+                lwt_snd(to, (void*)1);
+		//printf("sent 1\n");
+
+                //printf("rcving 2\n");
 		assert(2 == (int)lwt_rcv(from));
+                //printf("rcved 2\n");
 	}
 	lwt_chan_deref(from);
 	
@@ -209,20 +216,26 @@ test_perf_channels(int chsz)
 	assert(RUN == lwt_current()->status);
 	from = lwt_chan(chsz);
 	assert(from);
-	t    = lwt_create_chan(fn_chan, from, 0);
+	t    = lwt_kthd_create(fn_chan, from, 0);
+        //printf("rcving channel\n");
 	to   = lwt_rcv_chan(from);
+        //printf("rcvd channel\n");
 	//XXX
         //assert(to->count_sending);
 	rdtscll(start);
 	for (i = 0 ; i < ITER ; i++) {
+                //printf("rcving 1\n");
 		assert(1 == (int)lwt_rcv(from));
+                //printf("rcved 1\n");
+                //printf("sending 2\n");
 		lwt_snd(to, (void*)2);
+                //printf("sent 2\n");
 	}
 	lwt_chan_deref(to);
 	rdtscll(end);
 	printf("[PERF] %5lld <- snd+rcv (buffer size %d)\n", 
 	       (end-start)/(ITER*2), chsz);
-	lwt_join(t);
+	//lwt_join(t);
 }
 
 static int sndrcv_cnt = 0;
@@ -254,8 +267,8 @@ test_multisend(int chsz)
 
 	c  = lwt_chan(chsz);
 	assert(c);
-	t1 = lwt_create_chan(fn_snder_2, c, 0);
-	t2 = lwt_create_chan(fn_snder_1, c, 0);
+	t1 = lwt_kthd_create(fn_snder_2, c, 0);
+	t2 = lwt_kthd_create(fn_snder_1, c, 0);
 	for (i = 0 ; i < ITER*2 ; i++) {
 		//if (i % 5 == 0) lwt_yield(LWT_NULL);
 		ret[i] = (int)lwt_rcv(c);
@@ -263,8 +276,8 @@ test_multisend(int chsz)
 		if (sndrcv_cnt > maxcnt) maxcnt = sndrcv_cnt;
 		sndrcv_cnt--;
 	}
-	lwt_join(t1);
-	lwt_join(t2);
+	//lwt_join(t1);
+	//lwt_join(t2);
 	
 	for (i = 0 ; i < ITER*2 ; i++) {
 		sum += ret[i];
@@ -400,7 +413,7 @@ kthd_start(lwt_chan_t c)
         printf("hello kthd\n");
         lwt_snd(c, (void*) 1);
         printf("sent 1\n");
-        while (1);
+        //while (1);
 
 }
 
@@ -415,13 +428,17 @@ test_kthd()
         return;
 }
 
-
+void
+test_kthd_async()
+{
+    return;
+}
 int
 main(void)
 {
         lwt_init();
         test_kthd();
-
+        //test_kthd_async();
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);
@@ -430,7 +447,7 @@ main(void)
         printf("test_perf_async_steam done\n");
 	//test_crt_join_sched();
 	test_multisend(0);
-	test_multisend(ITER/10 < 100 ? ITER/10 : 100);
+	//test_multisend(ITER/10 < 100 ? ITER/10 : 100);
 	test_grpwait(0, 3);
 	test_grpwait(3, 3);
 
