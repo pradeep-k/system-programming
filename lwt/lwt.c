@@ -785,7 +785,7 @@ int handle_msg(inter_kthd_msg_t msg)
 {
         assert(msg->type == MSG);
 
-        ktcb_t kthd = pthread_getspecific(key);
+        ktcb_t kthd = msg->sender->owner_kthd;
         
         // If channel is synchronous, then send a reply to remote sender
         // to unblock the remote lwt.
@@ -846,11 +846,11 @@ static void* __idle_lwt(void* arg)
                          * If runqueue is empty then sleep.
                          */
                         if (1 == ring_size(kthd->lwt_run)) {
-                                kthd->is_sleeping = 0;
+                                kthd->is_sleeping = 1;
                                 pthread_mutex_lock(&kthd->thd_rb_lock);
                                 pthread_cond_wait(&kthd->thd_rb_cond, &kthd->thd_rb_lock);
                                 pthread_mutex_unlock(&kthd->thd_rb_lock);
-                                kthd->is_sleeping = 1;
+                                kthd->is_sleeping = 0;
                         } else {
                             lwt_yield(LWT_NULL);
                             continue;
@@ -887,7 +887,7 @@ __lwt_snd_interkthd(lwt_chan_t c, void* data)
         msg->rcv_chan = c;
         msg->type = MSG;
         msg->data = data;
-        waitfree_rb_push(kthd->thd_rb, data);
+        waitfree_rb_push(kthd->thd_rb, msg);
 
         /*
          * Is the remote thd sleeping because they are expecting some remote msg

@@ -25,7 +25,7 @@ void waitfree_rb_cleanup(waitfree_rb_t* rb)
 
 int waitfree_rb_push(waitfree_rb_t* rb, void* data)
 {
-        int64_t index =__sync_add_and_fetch(&rb->head, 1);
+        int64_t index =__sync_fetch_and_add(&rb->head, 1);
         rb->buf[index % rb_size] = data;
         return 0;
 }

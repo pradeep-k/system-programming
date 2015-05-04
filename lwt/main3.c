@@ -398,6 +398,8 @@ void*
 kthd_start(lwt_chan_t c)
 {
         printf("hello kthd\n");
+        lwt_snd(c, (void*) 1);
+        printf("sent 1\n");
         while (1);
 
 }
@@ -407,6 +409,9 @@ test_kthd()
 {
         lwt_chan_t c = lwt_chan(0);
         int ret = lwt_kthd_create(kthd_start, c);
+        int i = (int) lwt_rcv(c);
+        printf("rcved 1\n");
+        assert( i == 1);
         return;
 }
 
