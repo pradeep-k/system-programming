@@ -14,7 +14,7 @@ void waitfree_rb_cleanup(waitfree_rb_t* rb);
 
 int waitfree_rb_push(waitfree_rb_t* rb, void* data);
 void* waitfree_rb_pop(waitfree_rb_t* rb);
-int is_waitfree_rb_buf_empty(waitfree_rb_t* rb);
+int is_waitfree_rb_empty(waitfree_rb_t* rb);
 int is_waitfree_rb_full(waitfree_rb_t* rb);
 
 #endif

@@ -27,9 +27,9 @@ void* waitfree_rb_pop(waitfree_rb_t* rb)
         return 0;
 }
 
-int is_waitfree_rb_buf_empty(waitfree_rb_t* rb)
+int is_waitfree_rb_empty(waitfree_rb_t* rb)
 {
-        return 0;
+        return 1;
 }
 
 int is_waitfree_rb_full(waitfree_rb_t* rb)

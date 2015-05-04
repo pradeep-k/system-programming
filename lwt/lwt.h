@@ -29,6 +29,8 @@ typedef enum{
         FREE // Complete and has been joined
 }lwt_status_t;
 
+struct ktcb; 
+
 /* data structures */
 struct lwt_tcb{		//thread control block;
 	void* ip;
@@ -46,6 +48,11 @@ struct lwt_tcb{		//thread control block;
         lwt_status_t status;
         lwt_flags_t flags; 
 
+        /*
+         * Owner kthd
+         */
+        
+        struct ktcb* owner_kthd; 
         /*
          * This thread called join. 
          * Unblock it after we are dead. 
@@ -225,12 +232,36 @@ struct ktcb{
 
         //used for inter-kthd communication
         waitfree_rb_t *thd_rb;
+        int is_sleeping;
         pthread_mutex_t thd_rb_lock;
         pthread_cond_t  thd_rb_cond;
+
         
 };
 typedef struct ktcb* ktcb_t;
 
+typedef enum{
+	MSG,
+	REPLY
+}msg_t;
+
+struct inter_kthd_msg {
+        //sender lwt
+        lwt_t       sender;
+
+        //remote channel to which data is sent
+        lwt_chan_t  rcv_chan;
+
+        //If this is a msg or response to the msg.
+        msg_t type;
+
+        //Data that sender lwt is sending to remote channel.
+        void*       data;
+};
+
+typedef struct inter_kthd_msg* inter_kthd_msg_t;
+
 void lwt_init();
+
 
 #endif

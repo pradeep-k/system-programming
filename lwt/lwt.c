@@ -8,6 +8,7 @@
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+#include <pthread.h>
 #include "ring.h"
 
 #define MAX_THD 64
@@ -39,7 +40,6 @@ lwt_t   Queue[MAX_THD];// a queue to store living thread's pointer
 int     queue_length=0;
 
 
-//lwt_t current_thd;global pointer to current executing thread
 
 //int runnable_num=1;
 //int blocked_num=0;
@@ -59,6 +59,11 @@ static void *__lwt_stack_get(void);
 
 static void __lwt_stack_return(void *stk);
 
+static int __lwt_snd_interkthd(lwt_chan_t c, void* data);
+
+static void* __idle_lwt(void* arg);
+
+static void __lwt_unblock(lwt_t next);
 
 /*initialize the lwt_tcb for main function*/
 
@@ -68,20 +73,6 @@ void lwt_current_set()
         kthd->current_thd = kthd->lwt_run->head;
 }
 
-/*
- * If all lwts in this kthread are blocked because all of them were 
- * waiting for a love msg from some remote lwt and I (idle lwt as in ideal) 
- * of each kthread doesn't find any love msg in inter-thread buffer
- * then I will sleep. When some remote lwt send a love msg,
- * they will wake me using conditional variable.
- * XXX: With this idle thread, some scheduler logic could be simplified like
- * in case of empty run-queue
-*/
-
-void* idle_lwt(void* arg)
-{
-        return NULL;
-}
 
 
 /*
@@ -102,7 +93,6 @@ void lwt_init()
         //How good it would be if we can make a global lwt pool 
         //instead of local to each kthread.
         kthd->lwt_pool      = ring_buffer_create();
-
         kthd->lwt_zombie    = ring_buffer_create();
         kthd->lwt_run       = ring_buffer_create();
         kthd->lwt_blocked   = ring_buffer_create();
@@ -110,8 +100,11 @@ void lwt_init()
         //lwt tcb for kthread.
         lwt_t main_tcb = (lwt_t)malloc(sizeof(tcb));
         memset(main_tcb, 0, sizeof(*main_tcb));
-        main_tcb->id=thd_id++;
-	push(kthd->lwt_run, main_tcb);
+        
+        main_tcb->id  = thd_id++;
+        main_tcb->owner_kthd = kthd;
+	
+        push(kthd->lwt_run, main_tcb);
         lwt_current_set();
         main_tcb->status = RUN;
 
@@ -126,9 +119,11 @@ void lwt_init()
         if( 0 != (error_code = pthread_cond_init(&kthd->thd_rb_cond, 0))) {
                 handle_error_en(error_code, "pthread_cond_init");
         }
+        
+        kthd->is_sleeping = 0;
 
         //We also need to create a "idle" lwt thread in each kthd.
-        lwt_create(idle_lwt, NULL, LWT_NOJOIN);
+        lwt_create(__idle_lwt, NULL, LWT_NOJOIN);
 }
 
 void lwt_clean()
@@ -164,6 +159,8 @@ lwt_t lwt_create(lwt_fn_t fn, void *data, lwt_flags_t flags)
         thd_handle->data = data;
        	thd_handle->num_blocked = 0;
         thd_handle->flags = flags; 
+        thd_handle->owner_kthd = kthd;
+        
         /*
          * Mark the status as READY..
          */
@@ -506,19 +503,27 @@ static void __lwt_block(lwt_t next)
         }
 }
 
-  
+
+ktcb_t chan_owner_kthd (lwt_chan_t c) 
+{
+        return c->rcv_thd->owner_kthd; 
+}
+
 int lwt_snd(lwt_chan_t c, void *data)
 {
-	assert(c != NULL);;
+	assert(c != NULL);
         assert (data != NULL);
        
+	ktcb_t kthd = pthread_getspecific(key);
+        lwt_t current = lwt_current();
+        
         /*
          * XXX: We need to check if the channel is local or not
          * If not, we need to push data in inter-kthread-buffer
          */        
-
-	ktcb_t kthd = pthread_getspecific(key);
-        lwt_t current = lwt_current();
+        if (chan_owner_kthd(c) != kthd) {
+                return __lwt_snd_interkthd(c, data);
+        }
 	
         //block the sender if queue is full.
         while (is_chan_buf_full(c->queue)) {
@@ -567,8 +572,8 @@ int lwt_snd(lwt_chan_t c, void *data)
 
 void *lwt_rcv(lwt_chan_t c)
 {
-	ktcb_t kthd = pthread_getspecific(key);
-	assert(c != NULL);;
+	//ktcb_t kthd = pthread_getspecific(key);
+	assert(c != NULL);
         
         lwt_t sender = LWT_NULL;
 	lwt_t current = lwt_current();
@@ -590,9 +595,7 @@ void *lwt_rcv(lwt_chan_t c)
 	if ( c->count_sending > 0 ) {
                     sender = pop_list(c->sending_thds);
                     c->count_sending--;
-                    remove_one(kthd->lwt_blocked, sender);
-                    sender->status = READY;
-                    push(kthd->lwt_run, sender);
+                    __lwt_unblock(sender);
         }
         
         c->status = IDLE;
@@ -764,4 +767,128 @@ int lwt_kthd_create(lwt_fn_t fn, lwt_chan_t c)
         }
         return 0;
 
+}
+
+/*
+ * Put msg in the right channel
+ */
+int handle_msg(inter_kthd_msg_t msg) 
+{
+        assert(msg->type == MSG);
+
+        ktcb_t kthd;
+        
+        // If channel is synchronous, then send a reply to remote sender
+        // to unblock the remote lwt.
+        lwt_snd(msg->rcv_chan, msg->data);
+       
+        if ( 1 == chan_buf_size(msg->rcv_chan)) {//synchronization case
+                msg->type = REPLY;
+                msg->data = NULL;
+                waitfree_rb_push(kthd->thd_rb, msg);
+                
+                if (kthd->is_sleeping) {
+                        pthread_cond_signal(&kthd->thd_rb_cond);
+                } 
+        } else {
+                free(msg);
+        }
+        return 0;
+}
+
+static 
+void __lwt_unblock(lwt_t next)
+{
+        ktcb_t kthd = pthread_getspecific(key);
+
+        next->status = READY;
+        remove_one(kthd->lwt_blocked, next);
+        push(kthd->lwt_run, next);
+        
+}
+
+int handle_reply(inter_kthd_msg_t msg) 
+{
+        assert(msg->type == REPLY);
+        __lwt_unblock(msg->sender);
+        free(msg);
+        return 0;
+}
+
+/*
+ * If all lwts in this kthread are blocked because all of them were 
+ * waiting for a msg from some remote lwt and I (idle lwt as in ideal) 
+ * of each kthread doesn't find any msg in inter-thread buffer
+ * then I will sleep. When some remote lwt send a msg,
+ * they will wake me using conditional variable.
+ * XXX: With this idle thread, some scheduler logic could be simplified like
+ * in case of empty run-queue
+ *
+ * The main job of this thd is to get the data from inter-kthd buffer and put it
+ * in the reciver thd/channel.
+*/
+
+static void* __idle_lwt(void* arg)
+{
+        ktcb_t kthd = pthread_getspecific(key);
+        while (1) {
+                if (is_waitfree_rb_empty(kthd->thd_rb)) {
+                        /*
+                         * If runqueue is empty then sleep.
+                         */
+                        if (1 == ring_size(kthd->lwt_run)) {
+                                kthd->is_sleeping = 0;
+                                pthread_mutex_lock(&kthd->thd_rb_lock);
+                                pthread_cond_wait(&kthd->thd_rb_cond, &kthd->thd_rb_lock);
+                                pthread_mutex_unlock(&kthd->thd_rb_lock);
+                                kthd->is_sleeping = 1;
+                        } else {
+                            lwt_yield(LWT_NULL);
+                            continue;
+                        }
+                }
+                //inter kthd rb has some data.
+                inter_kthd_msg_t msg = waitfree_rb_pop(kthd->thd_rb);
+                switch(msg->type) {
+                    case MSG:
+                        handle_msg(msg);
+                        break;
+                    case REPLY:
+                        handle_reply(msg);
+                        break;
+                }
+        }
+        return NULL;
+}
+
+/*
+ * If channel is synchronous, block the sending thrd on its kthd.
+ * The idle thd will check the msg recived from the remote channel.
+ * Remote channel has to send back a msg saying msg is recieved.
+ * 
+ * If the channel is asynchronous, we don't have any idea about the buffer
+ * size of the remote channel, we will never block in this case.
+ */
+static int 
+__lwt_snd_interkthd(lwt_chan_t c, void* data)
+{
+        ktcb_t kthd = chan_owner_kthd(c);
+        inter_kthd_msg_t msg = (inter_kthd_msg_t*)malloc(sizeof(struct inter_kthd_msg)); 
+        msg->sender = lwt_current();
+        msg->rcv_chan = c;
+        msg->type = MSG;
+        msg->data = data;
+        waitfree_rb_push(kthd->thd_rb, data);
+
+        /*
+         * Is the remote thd sleeping because they are expecting some remote msg
+         */
+        if (kthd->is_sleeping) {
+                pthread_cond_signal(&kthd->thd_rb_cond);
+        } 
+        
+        if ( 1 == chan_buf_size(c)) {//synchronization case
+                __lwt_block(LWT_NULL);
+        }
+        return 0;
 }
