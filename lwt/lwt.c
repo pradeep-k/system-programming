@@ -140,6 +140,8 @@ void lwt_init()
 void lwt_kthd_clean()
 {
         //XXX
+        //usleep(10);
+        //while (1);
         return;
 }
 
@@ -607,7 +609,7 @@ void *lwt_rcv(lwt_chan_t c)
                     sender = pop_list(c->sending_thds);
                     c->count_sending--;
                     if (1 == chan_buf_size(c)) {
-                        //__lwt_unblock(sender);
+                        __lwt_unblock(sender);
                          lwt_yield(sender);
                     } else {
                         __lwt_unblock(sender);
@@ -800,25 +802,29 @@ int handle_msg(inter_kthd_msg_t msg)
         lwt_snd(msg->rcv_chan, msg->data);
        
         if ( 1 == msg->blocked) {//synchronization case
+        //if ( WAIT == msg->sender->status) {//synchronization case
                 msg->type = REPLY;
                 msg->data = NULL;
                 waitfree_rb_push(kthd->thd_rb, msg);
                 
-                if (kthd->is_sleeping) {
-                        pthread_cond_signal(&kthd->thd_rb_cond);
-                } 
         } else {
                 free(msg);
         }
+        
+        if (kthd->is_sleeping) {
+                pthread_mutex_lock(&kthd->thd_rb_lock);
+                pthread_cond_signal(&kthd->thd_rb_cond);
+                pthread_mutex_unlock(&kthd->thd_rb_lock);
+        } 
         return 0;
 }
 
 static 
 void __lwt_unblock(lwt_t next)
 {
-        //if (next->status != WAIT) {
-        //        return;
-        //}
+        if (next->status != WAIT) {
+                return;
+        }
         ktcb_t kthd = pthread_getspecific(key);
         next->status = READY;
         remove_one(kthd->lwt_blocked, next);
@@ -898,10 +904,9 @@ __lwt_snd_interkthd(lwt_chan_t c, void* data)
         msg->type = MSG;
         msg->data = data;
         msg->blocked = 0;
-        //if ( 1 == chan_buf_size(c)) {//synchronization case
-        //        msg->blocked = 1;;
-        //} else 
-        if (is_chan_buf_full(c->queue)) {
+        if ( 1 == chan_buf_size(c)) {//synchronization case
+                msg->blocked = 1;;
+        } else if (is_chan_buf_full(c->queue)) {
                 //We need to see if channel is full, let's just yield otherwise
                 //We need a really large inter-kthd buffer.
                 msg->blocked = 1;
@@ -913,7 +918,9 @@ __lwt_snd_interkthd(lwt_chan_t c, void* data)
          * Is the remote thd sleeping because they are expecting some remote msg
          */
         if (kthd->is_sleeping) {
+                pthread_mutex_lock(&kthd->thd_rb_lock);
                 pthread_cond_signal(&kthd->thd_rb_cond);
+                pthread_mutex_unlock(&kthd->thd_rb_lock);
         } 
         
         if ( 1 == msg->blocked) {//synchronization case

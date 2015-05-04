@@ -6,8 +6,8 @@
 
 #define rdtscll(val) __asm__ __volatile__("rdtsc" : "=A" (val))
 
-#define ITER 10000
-//#define ITER 4 
+#define ITER 1000
+//#define ITER 20 
 
 /* 
  * My output on an Intel Core i5-2520M CPU @ 2.50GHz:
@@ -216,6 +216,7 @@ test_perf_channels(int chsz)
 	assert(RUN == lwt_current()->status);
 	from = lwt_chan(chsz);
 	assert(from);
+        //printf("creating channel kthd\n");
 	t    = lwt_kthd_create(fn_chan, from, 0);
         //printf("rcving channel\n");
 	to   = lwt_rcv_chan(from);
@@ -246,7 +247,9 @@ fn_snder(lwt_chan_t c, int v)
 	int i;
 
 	for (i = 0 ; i < ITER ; i++) {
+                //printf("sending %d\n", v);
 		lwt_snd(c, (void*)v);
+                //printf("sent %d\n", v);
 		sndrcv_cnt++;
 	}
 
@@ -271,7 +274,9 @@ test_multisend(int chsz)
 	t2 = lwt_kthd_create(fn_snder_1, c, 0);
 	for (i = 0 ; i < ITER*2 ; i++) {
 		//if (i % 5 == 0) lwt_yield(LWT_NULL);
+                //printf("rcving %d\n", ret[i]);
 		ret[i] = (int)lwt_rcv(c);
+                //printf("rcved %d\n", ret[i]);
                 //XXX:
 		if (sndrcv_cnt > maxcnt) maxcnt = sndrcv_cnt;
 		sndrcv_cnt--;
@@ -422,6 +427,7 @@ test_kthd()
 {
         lwt_chan_t c = lwt_chan(0);
         int ret = lwt_kthd_create(kthd_start, c);
+        printf("rcvng 1\n");
         int i = (int) lwt_rcv(c);
         printf("rcved 1\n");
         assert( i == 1);
@@ -447,9 +453,9 @@ main(void)
         printf("test_perf_async_steam done\n");
 	//test_crt_join_sched();
 	test_multisend(0);
-	//test_multisend(ITER/10 < 100 ? ITER/10 : 100);
-	test_grpwait(0, 3);
-	test_grpwait(3, 3);
+	test_multisend(ITER/10 < 100 ? ITER/10 : 100);
+	/*test_grpwait(0, 3);
+	test_grpwait(3, 3);*/
 
 	return 0;
 }
