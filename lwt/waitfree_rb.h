@@ -1,6 +1,6 @@
 #ifndef __WAIT_FREE_RB_H__
 #define __WAIT_FREE_RB_H__
-#define rb_size 1024
+#define rb_size 4096 
 
 typedef struct tag_waitfree_rb_t {
         void       *buf[rb_size];

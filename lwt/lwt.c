@@ -13,8 +13,8 @@
 #include "ring.h"
 
 #define MAX_THD 64
-//#define DEFAULT_STACK_SIZE 1048576 //1MB
-#define DEFAULT_STACK_SIZE 548576 //1MB
+#define DEFAULT_STACK_SIZE 1048576 //1MB
+//#define DEFAULT_STACK_SIZE 548576 //1MB
 
 /*
  *  * Taken from man pages example.
@@ -799,7 +799,7 @@ int handle_msg(inter_kthd_msg_t msg)
         // to unblock the remote lwt.
         lwt_snd(msg->rcv_chan, msg->data);
        
-        if ( 1 == chan_buf_size(msg->rcv_chan)) {//synchronization case
+        if ( 1 == msg->blocked) {//synchronization case
                 msg->type = REPLY;
                 msg->data = NULL;
                 waitfree_rb_push(kthd->thd_rb, msg);
@@ -816,12 +816,13 @@ int handle_msg(inter_kthd_msg_t msg)
 static 
 void __lwt_unblock(lwt_t next)
 {
+        //if (next->status != WAIT) {
+        //        return;
+        //}
         ktcb_t kthd = pthread_getspecific(key);
-
         next->status = READY;
         remove_one(kthd->lwt_blocked, next);
         push(kthd->lwt_run, next);
-        
 }
 
 int handle_reply(inter_kthd_msg_t msg) 
@@ -859,7 +860,7 @@ static void* __idle_lwt(void* arg)
                                 pthread_cond_wait(&kthd->thd_rb_cond, &kthd->thd_rb_lock);
                                 pthread_mutex_unlock(&kthd->thd_rb_lock);
                                 kthd->is_sleeping = 0;
-                                usleep(10);
+                                //usleep(10);
                         } else {
                             lwt_yield(LWT_NULL);
                         }
@@ -896,6 +897,16 @@ __lwt_snd_interkthd(lwt_chan_t c, void* data)
         msg->rcv_chan = c;
         msg->type = MSG;
         msg->data = data;
+        msg->blocked = 0;
+        //if ( 1 == chan_buf_size(c)) {//synchronization case
+        //        msg->blocked = 1;;
+        //} else 
+        if (is_chan_buf_full(c->queue)) {
+                //We need to see if channel is full, let's just yield otherwise
+                //We need a really large inter-kthd buffer.
+                msg->blocked = 1;
+        }
+        
         waitfree_rb_push(kthd->thd_rb, msg);
 
         /*
@@ -905,8 +916,8 @@ __lwt_snd_interkthd(lwt_chan_t c, void* data)
                 pthread_cond_signal(&kthd->thd_rb_cond);
         } 
         
-        if ( 1 == chan_buf_size(c)) {//synchronization case
+        if ( 1 == msg->blocked) {//synchronization case
                 __lwt_block(LWT_NULL);
-        }
+        } 
         return 0;
 }

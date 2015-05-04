@@ -256,6 +256,9 @@ struct inter_kthd_msg {
         //If this is a msg or response to the msg.
         msg_t type;
 
+        //If sender is blocked.
+        int blocked;
+
         //Data that sender lwt is sending to remote channel.
         void*       data;
 };
