@@ -74,6 +74,10 @@ static void* __idle_lwt(void* arg);
 
 static void __lwt_unblock(lwt_t next);
 
+static void* __lwt_sync_rcv(lwt_chan_t c);
+
+static int __lwt_sync_snd(lwt_chan_t c, void* data);
+
 /*initialize the lwt_tcb for main function*/
 
 void lwt_current_set()
@@ -521,7 +525,6 @@ ktcb_t chan_owner_kthd (lwt_chan_t c)
 {
         return c->rcv_thd->owner_kthd; 
 }
-
 int lwt_snd(lwt_chan_t c, void *data)
 {
 	assert(c != NULL);
@@ -537,11 +540,21 @@ int lwt_snd(lwt_chan_t c, void *data)
         if (chan_owner_kthd(c) != kthd) {
                 return __lwt_snd_interkthd(c, data);
         }
-	
+        
+        if(1 == chan_buf_size(c))
+        {
+            return __lwt_sync_snd(c, data);
+        }        
         //block the sender if queue is full.
         while (is_chan_buf_full(c->queue)) {
 		push_list(c->sending_thds, current);
 		c->count_sending++;
+                if ( c->parent_grp) {
+                        if (0 == c->in_grp_active_list) {
+                                chan_buf_push(&c->parent_grp->active_list, c);
+                                c->in_grp_active_list = 1;
+                        }
+                }
                 if ( RCV == c->status) {
                         __lwt_block(c->rcv_thd);
                 } else {//if ( 1 == chan_buf_size(c)) { //synchronization case
@@ -583,6 +596,155 @@ int lwt_snd(lwt_chan_t c, void *data)
         return 0;
 }
 
+int my_lwt_snd(lwt_chan_t c, void *data)
+{
+	assert(c != NULL);
+        assert (data != NULL);
+       
+	ktcb_t kthd = pthread_getspecific(key);
+        lwt_t current = lwt_current();
+        
+        /*
+         * XXX: We need to check if the channel is local or not
+         * If not, we need to push data in inter-kthread-buffer
+         */        
+        if (chan_owner_kthd(c) != kthd) {
+                return __lwt_snd_interkthd(c, data);
+        }
+	
+        //block the sender if queue is full.
+        while (is_chan_buf_full(c->queue)) {
+		push_list(c->sending_thds, current);
+		c->count_sending++;
+                if ( c->parent_grp) {
+                        if (0 == c->in_grp_active_list) {
+                                chan_buf_push(&c->parent_grp->active_list, c);
+                                c->in_grp_active_list = 1;
+                        }
+                }
+                if ( RCV == c->status) {
+                        __lwt_block(c->rcv_thd);
+                } else {//if ( 1 == chan_buf_size(c)) { //synchronization case
+                        __lwt_block(LWT_NULL);
+                }
+	} 
+       
+        chan_buf_push(c->queue, data);
+
+        if ( c->parent_grp) {
+                if (0 == c->in_grp_active_list) {
+                        chan_buf_push(&c->parent_grp->active_list, c);
+                        c->in_grp_active_list = 1;
+                }
+        }
+        
+        if ( 1 == chan_buf_size(c)) {//synchronization case
+                push_list(c->sending_thds, current);
+	        c->count_sending++;
+                if ( c->parent_grp ) {
+                        if ( RCV == c->parent_grp->status) {
+                            __lwt_block(c->parent_grp->rcv_thd);
+                        } else { 
+                            __lwt_block(LWT_NULL);
+                        }
+                } else {
+                        if ( RCV == c->status) {
+                            __lwt_block(c->rcv_thd);
+                        } else { 
+                            __lwt_block(LWT_NULL);
+                        }
+                }
+        
+        } else if (/*( RCV == c->status) && */( WAIT == c->rcv_thd->status)) {
+                remove_one(kthd->lwt_blocked, c->rcv_thd);
+                c->rcv_thd->status = READY;
+                push(kthd->lwt_run, c->rcv_thd);
+        }
+        return 0;
+}
+static 
+int __lwt_sync_snd(lwt_chan_t c, void* data)
+{
+	assert(c != NULL);
+        assert (data != NULL);
+       
+	ktcb_t kthd = pthread_getspecific(key);
+        lwt_t current = lwt_current();
+        
+        //block the sender if queue is full.
+        while (is_chan_buf_full(c->queue)) {
+		push_list(c->sending_thds, current);
+		c->count_sending++;
+                if ( RCV == c->status) {
+                        __lwt_block(c->rcv_thd);
+                } else {
+                        __lwt_block(LWT_NULL);
+                }
+	} 
+        
+        chan_buf_push(c->queue, data);
+        
+        if ( c->parent_grp ) {
+                if (0 == c->in_grp_active_list) {
+                        chan_buf_push(&c->parent_grp->active_list, c);
+                        c->in_grp_active_list = 1;
+                }
+        }
+
+        if ( RCV == c->status) {
+                lwt_yield(c->rcv_thd);
+        } else if ( c->parent_grp ) {
+		    push_list(c->sending_thds, current);
+		    c->count_sending++;
+                    if ( RCV == c->parent_grp->status) {
+                        __lwt_block(c->parent_grp->rcv_thd);
+                    } else { 
+                        __lwt_block(LWT_NULL);
+                    }
+        } else {
+		push_list(c->sending_thds, current);
+		c->count_sending++;
+                __lwt_block(LWT_NULL);
+        }
+        
+        return 0;
+        
+}
+
+static
+void* __lwt_sync_rcv(lwt_chan_t c)
+{
+	//ktcb_t kthd = pthread_getspecific(key);
+	assert(c != NULL);
+        
+        lwt_t sender = LWT_NULL;
+	lwt_t current = lwt_current();
+	
+        assert (c->rcv_thd == current);
+
+        if (is_chan_buf_empty(c->queue)) {
+                c->status = RCV;
+                //If a sender is waiting
+                if (0 != c->count_sending) {
+                        sender = pop_list(c->sending_thds);
+                        c->count_sending--;
+                        lwt_yield(sender);
+                } else {
+                        __lwt_block(LWT_NULL);
+                }
+        }
+
+	if ( c->count_sending > 0 ) {
+                    sender = pop_list(c->sending_thds);
+                    c->count_sending--;
+                     __lwt_unblock(sender);
+                    
+        }
+        
+        c->status = IDLE;
+        return chan_buf_pop(c->queue);
+        
+}
 void *lwt_rcv(lwt_chan_t c)
 {
 	//ktcb_t kthd = pthread_getspecific(key);
@@ -592,6 +754,10 @@ void *lwt_rcv(lwt_chan_t c)
 	lwt_t current = lwt_current();
 	
         assert (c->rcv_thd == current);
+
+        if ( 1 == chan_buf_size(c)) {
+                return __lwt_sync_rcv(c);
+        }
 
         if (is_chan_buf_empty(c->queue)) {
                 c->status = RCV;
@@ -653,7 +819,9 @@ lwt_t lwt_create_chan(lwt_chan_fn_t fn, lwt_chan_t c, lwt_flags_t flags)
         thd_handle->fn = fn;
         thd_handle->flags = flags; 
         thd_handle->data = (void*)c;
-	push_list(c->sender_thds, thd_handle);
+        thd_handle->owner_kthd = kthd;
+	
+        push_list(c->sender_thds, thd_handle);
 	c->count_sender++;
        	thd_handle->num_blocked = 0; 
         thd_handle->status = READY;
@@ -799,17 +967,27 @@ int handle_msg(inter_kthd_msg_t msg)
         
         // If channel is synchronous, then send a reply to remote sender
         // to unblock the remote lwt.
+        if ( 1 == msg->blocked) {//synchronization case
+        //if ( WAIT == msg->sender->status) {//synchronization case
+                inter_kthd_msg_t reply = (inter_kthd_msg_t) malloc(sizeof (
+                                struct inter_kthd_msg)); 
+                reply->type = REPLY;
+                reply->sender = msg->sender;
+                reply->data = NULL;
+                waitfree_rb_push(kthd->thd_rb, reply);
+        } 
         lwt_snd(msg->rcv_chan, msg->data);
        
-        if ( 1 == msg->blocked) {//synchronization case
+        /*if ( 1 == msg->blocked) {//synchronization case
         //if ( WAIT == msg->sender->status) {//synchronization case
                 msg->type = REPLY;
                 msg->data = NULL;
                 waitfree_rb_push(kthd->thd_rb, msg);
                 
-        } else {
-                free(msg);
-        }
+        } else {*/
+
+        free(msg);
+        //}
         
         if (kthd->is_sleeping) {
                 pthread_mutex_lock(&kthd->thd_rb_lock);

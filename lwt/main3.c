@@ -6,7 +6,7 @@
 
 #define rdtscll(val) __asm__ __volatile__("rdtsc" : "=A" (val))
 
-#define ITER 1000
+#define ITER 500
 //#define ITER 20 
 
 /* 
@@ -200,6 +200,7 @@ fn_chan(lwt_chan_t to)
 		assert(2 == (int)lwt_rcv(from));
                 //printf("rcved 2\n");
 	}
+        lwt_yield(LWT_NULL);
 	lwt_chan_deref(from);
 	
 	return NULL;
@@ -216,7 +217,7 @@ test_perf_channels(int chsz)
 	assert(RUN == lwt_current()->status);
 	from = lwt_chan(chsz);
 	assert(from);
-        //printf("creating channel kthd\n");
+       // printf("creating channel kthd\n");
 	t    = lwt_kthd_create(fn_chan, from, 0);
         //printf("rcving channel\n");
 	to   = lwt_rcv_chan(from);
@@ -225,9 +226,10 @@ test_perf_channels(int chsz)
         //assert(to->count_sending);
 	rdtscll(start);
 	for (i = 0 ; i < ITER ; i++) {
-                //printf("rcving 1\n");
+               // printf("rcving 1\n");
 		assert(1 == (int)lwt_rcv(from));
-                //printf("rcved 1\n");
+               // printf("rcved 1\n");
+                
                 //printf("sending 2\n");
 		lwt_snd(to, (void*)2);
                 //printf("sent 2\n");
@@ -331,7 +333,7 @@ test_perf_async_steam(int chsz)
         assert(RUN == lwt_current()->status);
 	from = lwt_chan(chsz);
 	assert(from);
-	t = lwt_create_chan(fn_async_steam, from, 0);
+	t = lwt_kthd_create(fn_async_steam, from, 0);
 	//assert(lwt_info(LWT_INFO_NTHD_RUNNABLE) == 2);
 	rdtscll(start);
 	for (i = 0 ; i < ITER ; i++) {
@@ -341,7 +343,7 @@ test_perf_async_steam(int chsz)
 	rdtscll(end);
 	printf("[PERF] %5lld <- asynchronous snd->rcv (buffer size %d)\n",
 	       (end-start)/(ITER*2), chsz);
-	lwt_join(t);
+	//lwt_join(t);
 }
 
 void *
@@ -355,8 +357,9 @@ fn_grpwait(lwt_chan_t c)
 
 			for (j = 0 ; j < (i % 8) ; j++) lwt_yield(LWT_NULL);
 		}
+                //printf("worker0:%d\n", i);
 		lwt_snd(c, (void*)lwt_id(lwt_current()));
-                //printf("worker:%d\n", i);
+                //printf("worker1:%d\n", i);
 	}
 }
 
@@ -382,6 +385,7 @@ test_grpwait(int chsz, int grpsz)
 		lwt_chan_mark_set(cs[i], (void*)lwt_id(ts[i]));
 		lwt_cgrp_add(g, cs[i]);
 	}
+        //printf("grp created\n");
 	//assert(lwt_cgrp_free(g) == -1);
 	/**
 	 * Q: why don't we iterate through all of the data here?
@@ -395,6 +399,7 @@ test_grpwait(int chsz, int grpsz)
 		lwt_chan_t c;
 		int r;
 
+                //printf("main0:%d\n", i);
 		c = lwt_cgrp_wait(g);
                 //printf("main1:%d\n", i);
 		assert(c);
@@ -415,9 +420,9 @@ test_grpwait(int chsz, int grpsz)
 void* 
 kthd_start(lwt_chan_t c)
 {
-        printf("hello kthd\n");
+        //printf("hello kthd\n");
         lwt_snd(c, (void*) 1);
-        printf("sent 1\n");
+        //printf("sent 1\n");
         //while (1);
 
 }
@@ -427,9 +432,9 @@ test_kthd()
 {
         lwt_chan_t c = lwt_chan(0);
         int ret = lwt_kthd_create(kthd_start, c);
-        printf("rcvng 1\n");
+        //printf("rcvng 1\n");
         int i = (int) lwt_rcv(c);
-        printf("rcved 1\n");
+        //printf("rcved 1\n");
         assert( i == 1);
         return;
 }
@@ -443,8 +448,8 @@ int
 main(void)
 {
         lwt_init();
-        test_kthd();
-        //test_kthd_async();
+        //test_kthd();
+        test_kthd_async();
 	test_perf();
         printf("test_perf done\n");
 	test_perf_channels(0);
@@ -452,10 +457,13 @@ main(void)
 	test_perf_async_steam(ITER/10 < 100 ? ITER/10 : 100);
         printf("test_perf_async_steam done\n");
 	//test_crt_join_sched();
+        
 	test_multisend(0);
+        
 	test_multisend(ITER/10 < 100 ? ITER/10 : 100);
-	/*test_grpwait(0, 3);
-	test_grpwait(3, 3);*/
+	
+        test_grpwait(0, 1);
+	test_grpwait(3, 3);
 
 	return 0;
 }
